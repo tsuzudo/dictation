@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# 個人メモ・スクリーンショット
+memory.rtf
+Screenshot 2026-07-15.png
+
+# 録音・音声ファイル（実行のたびに生成される一時ファイル）
+*.wav
+
+# Python
+__pycache__/
+*.pyc

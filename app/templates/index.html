@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Dictation - 発音チェック</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="app">
+  <h1>Dictation - 発音チェック</h1>
+
+  <section class="accent-select">
+    <span class="label">アクセント：</span>
+    <label><input type="radio" name="accent" value="us" checked> 米</label>
+    <label><input type="radio" name="accent" value="uk"> 英</label>
+    <label><input type="radio" name="accent" value="au"> 豪</label>
+  </section>
+
+  <section class="tabs">
+    <div class="tab-buttons">
+      <button class="tab-button active" data-tab="random">ランダム出題</button>
+      <button class="tab-button" data-tab="free">自由入力</button>
+    </div>
+
+    <div class="tab-panel" data-panel="random">
+      <span class="label">難易度：</span>
+      <label><input type="radio" name="difficulty" value="beginner" checked> 初級</label>
+      <label><input type="radio" name="difficulty" value="intermediate"> 中級</label>
+      <label><input type="radio" name="difficulty" value="advanced"> 上級</label>
+      <button id="btn-next-sentence">次の文章を出す</button>
+    </div>
+
+    <div class="tab-panel hidden" data-panel="free">
+      <textarea id="free-input" rows="3" placeholder="発音したい英文を入力してください"></textarea>
+      <button id="btn-use-free-text">この文章で出題</button>
+    </div>
+  </section>
+
+  <section class="sentence-display">
+    <div class="label">出題文：</div>
+    <div id="target-sentence" class="sentence-box"></div>
+  </section>
+
+  <section class="controls">
+    <button id="btn-play-model" disabled>▶ お手本を再生</button>
+    <button id="btn-record" disabled>● 録音開始</button>
+  </section>
+
+  <div id="status-indicator" class="status hidden"></div>
+
+  <section class="result hidden" id="result-section">
+    <h2>結果</h2>
+    <div class="diff-row"><span class="diff-row-label">出題文　　：</span><span id="diff-target"></span></div>
+    <div class="diff-row"><span class="diff-row-label">あなたの発音：</span><span id="diff-said"></span></div>
+
+    <div class="result-controls">
+      <button id="btn-play-mine" disabled>▶ 自分の発音を再生</button>
+      <button id="btn-retry">🔁 もう一度録音</button>
+    </div>
+  </section>
+</div>
+
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
