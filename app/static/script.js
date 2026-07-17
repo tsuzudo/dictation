@@ -1,6 +1,16 @@
 const state = {
   isRecording: false,
   hasSentence: false,
+  // 再生中のお手本。古い読み上げのイベントで新しい再生の状態を壊さないための目印
+  currentUtterance: null,
+};
+
+// アクセントごとのお手本の声（spec.txt 5-2節）
+// name は say コマンド時代と同じ声。見つからなければ lang で探し、それも無ければブラウザ既定に任せる
+const ACCENT_VOICES = {
+  us: { name: "Samantha", lang: "en-US" },
+  uk: { name: "Daniel", lang: "en-GB" },
+  au: { name: "Karen", lang: "en-AU" },
 };
 
 const el = {
@@ -87,18 +97,53 @@ el.btnUseFreeText.addEventListener("click", async () => {
   if (data.sentence) setSentence(data.sentence);
 });
 
-el.btnPlayModel.addEventListener("click", async () => {
-  el.btnPlayModel.disabled = true;
-  const accent = getSelectedAccent();
-  await fetch("/api/say", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ accent }),
+// getVoices() は読み込み直後に空を返すことがあるため、押下のたびに取得し直す
+function pickVoice(accent) {
+  const target = ACCENT_VOICES[accent] || ACCENT_VOICES.us;
+  const voices = window.speechSynthesis.getVoices();
+  const sameLang = (v) => v.lang.replace("_", "-") === target.lang;
+  const voice = voices.find((v) => v.name === target.name && sameLang(v)) || voices.find(sameLang) || null;
+  return { voice, lang: target.lang };
+}
+
+el.btnPlayModel.addEventListener("click", () => {
+  const text = el.targetSentence.textContent.trim();
+  if (!text) return;
+
+  const { voice, lang } = pickVoice(getSelectedAccent());
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = lang;
+  if (voice) utterance.voice = voice;
+
+  const finish = () => {
+    if (state.currentUtterance === utterance) {
+      state.currentUtterance = null;
+      el.btnPlayModel.disabled = false;
+    }
+  };
+  utterance.addEventListener("end", finish);
+  utterance.addEventListener("error", (event) => {
+    // cancel() による中断は想定内なので、エラー表示はしない
+    if (event.error !== "canceled" && event.error !== "interrupted") {
+      setStatus("お手本の再生に失敗しました");
+    }
+    finish();
   });
-  el.btnPlayModel.disabled = false;
+
+  window.speechSynthesis.cancel();
+  state.currentUtterance = utterance;
+  el.btnPlayModel.disabled = true;
+  window.speechSynthesis.speak(utterance);
 });
 
+function stopModelPlayback() {
+  state.currentUtterance = null;
+  window.speechSynthesis.cancel();
+}
+
 async function startRecording() {
+  // お手本が再生途中だとマイクが拾ってしまうため止める
+  stopModelPlayback();
   setControlsEnabled(false);
   el.resultSection.classList.add("hidden");
   setStatus("");

@@ -20,12 +20,6 @@ SAMPLE_RATE = 44100
 # 一度出題した文は、その後この回数分の出題では再び出さない（spec.txt 4-1節）
 RECENT_LIMIT = 10
 
-ACCENT_VOICES = {
-    "us": "Samantha",
-    "uk": "Daniel",
-    "au": "Karen",
-}
-
 app = Flask(__name__)
 
 print("Whisperモデルを読み込み中...")
@@ -162,19 +156,6 @@ def api_sentence_custom():
     with state_lock:
         state["target_sentence"] = text
     return jsonify({"sentence": text})
-
-
-@app.route("/api/say", methods=["POST"])
-def api_say():
-    data = request.get_json(force=True)
-    accent = data.get("accent", "us")
-    voice = ACCENT_VOICES.get(accent, ACCENT_VOICES["us"])
-    with state_lock:
-        text = state["target_sentence"]
-    if not text:
-        return jsonify({"error": "no target sentence"}), 400
-    subprocess.run(["say", "-v", voice, text])
-    return jsonify({"status": "done"})
 
 
 def _record_callback(indata, frames, time_info, status):
