@@ -3,6 +3,12 @@ const state = {
   hasSentence: false,
   // 再生中のお手本。古い読み上げのイベントで新しい再生の状態を壊さないための目印
   currentUtterance: null,
+  // ブラウザ側録音（spec.txt 5-4節）
+  mediaRecorder: null,
+  mediaStream: null,
+  recordedChunks: [],
+  // 自分の発音の再生用。録音Blobから作るObjectURL（前回分は録音のたびに解放する）
+  myAudioUrl: null,
 };
 
 // アクセントごとのお手本の声（spec.txt 5-2節）
@@ -97,6 +103,28 @@ el.btnUseFreeText.addEventListener("click", async () => {
   if (data.sentence) setSentence(data.sentence);
 });
 
+// Chrome等では getVoices() が最初は空リストを返し、声は voiceschanged で非同期に読み込まれる。
+// 声が揃う前に読み上げると目的の声が見つからずブラウザ既定の声になる（初回だけお手本が変な音になる問題）。
+// そのため、初回の読み上げ前に声の読み込み完了を待つ。
+let voicesReadyPromise = null;
+function ensureVoicesLoaded() {
+  if (voicesReadyPromise) return voicesReadyPromise;
+  voicesReadyPromise = new Promise((resolve) => {
+    if (window.speechSynthesis.getVoices().length > 0) {
+      resolve();
+      return;
+    }
+    const done = () => {
+      window.speechSynthesis.removeEventListener("voiceschanged", done);
+      resolve();
+    };
+    window.speechSynthesis.addEventListener("voiceschanged", done);
+    // voiceschanged が来ないブラウザ向けの保険（一定時間で諦めて既定の声で読む）
+    setTimeout(done, 1000);
+  });
+  return voicesReadyPromise;
+}
+
 // getVoices() は読み込み直後に空を返すことがあるため、押下のたびに取得し直す
 function pickVoice(accent) {
   const target = ACCENT_VOICES[accent] || ACCENT_VOICES.us;
@@ -106,9 +134,13 @@ function pickVoice(accent) {
   return { voice, lang: target.lang };
 }
 
-el.btnPlayModel.addEventListener("click", () => {
+el.btnPlayModel.addEventListener("click", async () => {
   const text = el.targetSentence.textContent.trim();
   if (!text) return;
+
+  // 声の読み込み完了を待つ（初回だけお手本が既定の声で鳴る問題を防ぐ）
+  el.btnPlayModel.disabled = true;
+  await ensureVoicesLoaded();
 
   const { voice, lang } = pickVoice(getSelectedAccent());
   const utterance = new SpeechSynthesisUtterance(text);
@@ -141,34 +173,92 @@ function stopModelPlayback() {
   window.speechSynthesis.cancel();
 }
 
+// 録音後、Blobをサーバーへ送って文字起こし・判定してもらう
+async function transcribeAndShow(blob) {
+  setStatus("判定中...");
+  const form = new FormData();
+  form.append("audio", blob, "recording.webm");
+  try {
+    const res = await fetch("/api/transcribe", { method: "POST", body: form });
+    const data = await res.json();
+    if (data.diff) {
+      renderDiff(data.diff);
+      el.resultSection.classList.remove("hidden");
+      el.btnPlayMine.disabled = false;
+    } else {
+      setStatus("判定に失敗しました");
+      return;
+    }
+  } catch (err) {
+    setStatus("判定に失敗しました");
+    return;
+  } finally {
+    setControlsEnabled(true);
+    el.btnRecord.disabled = false;
+  }
+  setStatus("");
+}
+
+// 録音したチャンクをまとめてBlobにし、自分の発音再生用のURLも用意する
+function finalizeRecording() {
+  // マイクを解放する（タブの録音インジケータを消す）
+  if (state.mediaStream) {
+    state.mediaStream.getTracks().forEach((t) => t.stop());
+    state.mediaStream = null;
+  }
+  const blob = new Blob(state.recordedChunks, {
+    type: state.mediaRecorder ? state.mediaRecorder.mimeType : "audio/webm",
+  });
+  state.mediaRecorder = null;
+
+  // 前回の自分の発音のURLを解放してから差し替える
+  if (state.myAudioUrl) URL.revokeObjectURL(state.myAudioUrl);
+  state.myAudioUrl = URL.createObjectURL(blob);
+
+  transcribeAndShow(blob);
+}
+
 async function startRecording() {
   // お手本が再生途中だとマイクが拾ってしまうため止める
   stopModelPlayback();
-  setControlsEnabled(false);
   el.resultSection.classList.add("hidden");
   setStatus("");
-  await fetch("/api/record/start", { method: "POST" });
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    // 許可されなかった/マイクが無い場合。録音は始めず初期状態のまま知らせる
+    setStatus("マイクを使用できません（ブラウザのマイク許可を確認してください）");
+    return;
+  }
+
+  setControlsEnabled(false);
+  state.mediaStream = stream;
+  state.recordedChunks = [];
+  const recorder = new MediaRecorder(stream);
+  state.mediaRecorder = recorder;
+  recorder.addEventListener("dataavailable", (e) => {
+    if (e.data.size > 0) state.recordedChunks.push(e.data);
+  });
+  // stop() は非同期。全チャンクが出そろう stop イベントでまとめて処理する
+  recorder.addEventListener("stop", finalizeRecording);
+  recorder.start();
+
   state.isRecording = true;
   el.btnRecord.textContent = "■ 録音終了";
   el.btnRecord.classList.add("recording");
   el.btnRecord.disabled = false;
 }
 
-async function stopRecording() {
+function stopRecording() {
   el.btnRecord.disabled = true;
-  setStatus("判定中...");
-  const res = await fetch("/api/record/stop", { method: "POST" });
-  const data = await res.json();
-  setStatus("");
   state.isRecording = false;
   el.btnRecord.textContent = "● 録音開始";
   el.btnRecord.classList.remove("recording");
-  setControlsEnabled(true);
-
-  if (data.diff) {
-    renderDiff(data.diff);
-    el.resultSection.classList.remove("hidden");
-    el.btnPlayMine.disabled = false;
+  // 実際の判定は MediaRecorder の stop イベント（finalizeRecording）で行う
+  if (state.mediaRecorder && state.mediaRecorder.state !== "inactive") {
+    state.mediaRecorder.stop();
   }
 }
 
@@ -184,10 +274,14 @@ el.btnRetry.addEventListener("click", () => {
   startRecording();
 });
 
-el.btnPlayMine.addEventListener("click", async () => {
+el.btnPlayMine.addEventListener("click", () => {
+  if (!state.myAudioUrl) return;
   el.btnPlayMine.disabled = true;
-  await fetch("/api/playback/mine", { method: "POST" });
-  el.btnPlayMine.disabled = false;
+  const audio = new Audio(state.myAudioUrl);
+  const reenable = () => (el.btnPlayMine.disabled = false);
+  audio.addEventListener("ended", reenable);
+  audio.addEventListener("error", reenable);
+  audio.play().catch(reenable);
 });
 
 function renderDiff(diff) {

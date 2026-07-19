@@ -7,6 +7,8 @@ Screenshot 2026-07-15.png
 
 # 録音・音声ファイル（実行のたびに生成される一時ファイル）
 *.wav
+# ブラウザからアップロードされた録音の一時保存先（拡張子なし・spec.txt 5-4節）
+app/last_recording
 
 # Python
 __pycache__/

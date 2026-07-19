@@ -165,3 +165,58 @@ button:disabled {
 .diff-gap {
   color: #c7c7cc;
 }
+
+/* スマホ縦長レイアウト（UI_function.txt 2-1節）。
+   幅600px以下でボタンを縦積み・タップしやすいサイズに切り替える。PC表示は上のまま。 */
+@media (max-width: 600px) {
+  body {
+    padding: 12px;
+  }
+
+  .app {
+    padding: 16px 16px 24px;
+    border-radius: 10px;
+  }
+
+  h1 {
+    font-size: 18px;
+    margin-bottom: 16px;
+  }
+
+  /* アクセント・難易度のラジオは行間とタップ領域を広げる */
+  .accent-select label,
+  .tab-panel label {
+    display: inline-block;
+    padding: 6px 4px;
+    margin-right: 8px;
+  }
+
+  .sentence-box {
+    font-size: 20px;
+  }
+
+  /* 操作ボタンは横並びのまま、均等幅・指でタップしやすい高さにする */
+  .controls button,
+  .result-controls button {
+    flex: 1;
+    min-height: 48px;
+    font-size: 16px;
+  }
+
+  /* 単独配置のボタンは横幅いっぱいに */
+  #btn-next-sentence,
+  #btn-use-free-text {
+    width: 100%;
+    min-height: 48px;
+    font-size: 16px;
+  }
+
+  /* ランダム出題タブ内の「次の文章を出す」はラジオの下に間隔をあけて配置 */
+  #btn-next-sentence {
+    margin-top: 12px;
+  }
+
+  .diff-row {
+    font-size: 18px;
+  }
+}

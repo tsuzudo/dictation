@@ -2,21 +2,18 @@ import difflib
 import json
 import random
 import re
-import subprocess
 import threading
 from collections import deque
 from pathlib import Path
 
-import numpy as np
-import sounddevice as sd
 import whisper
 from flask import Flask, jsonify, request, render_template
-from scipy.io.wavfile import write as write_wav
 
 APP_DIR = Path(__file__).resolve().parent
 SENTENCES_PATH = APP_DIR / "sentences.json"
-RECORDING_PATH = APP_DIR / "last_recording.wav"
-SAMPLE_RATE = 44100
+# ブラウザからアップロードされた録音の一時保存先。形式（webm/opus/mp4等）は
+# 拡張子に依存せずffmpegが内容から判別するため、固定名でよい（spec.txt 5-4節）
+RECORDING_PATH = APP_DIR / "last_recording"
 # 一度出題した文は、その後この回数分の出題では再び出さない（spec.txt 4-1節）
 RECENT_LIMIT = 10
 
@@ -32,9 +29,6 @@ with open(SENTENCES_PATH, encoding="utf-8") as f:
 state_lock = threading.Lock()
 state = {
     "target_sentence": "",
-    "stream": None,
-    "frames": [],
-    "has_recording": False,
     # 直近に出題した文（難易度をまたいで1つで管理。古いものから自動で溢れる）
     "recent_sentences": deque(maxlen=RECENT_LIMIT),
 }
@@ -158,73 +152,24 @@ def api_sentence_custom():
     return jsonify({"sentence": text})
 
 
-def _record_callback(indata, frames, time_info, status):
-    with state_lock:
-        state["frames"].append(indata.copy())
+@app.route("/api/transcribe", methods=["POST"])
+def api_transcribe():
+    # ブラウザ（MediaRecorder）で録音した音声を受け取り、文字起こし→判定して返す。
+    # 形式（webm/opus/mp4等）はブラウザ依存だが、WhisperがffmpegでそのままデコードするためWAV変換は不要（spec.txt 5-4節）
+    audio_file = request.files.get("audio")
+    if audio_file is None:
+        return jsonify({"error": "no audio uploaded"}), 400
 
-
-@app.route("/api/record/start", methods=["POST"])
-def api_record_start():
-    with state_lock:
-        if state["stream"] is not None:
-            return jsonify({"error": "already recording"}), 400
-        state["frames"] = []
-        stream = sd.InputStream(
-            samplerate=SAMPLE_RATE,
-            channels=1,
-            callback=_record_callback,
-        )
-        stream.start()
-        state["stream"] = stream
-    return jsonify({"status": "recording"})
-
-
-@app.route("/api/record/stop", methods=["POST"])
-def api_record_stop():
-    with state_lock:
-        stream = state["stream"]
-        if stream is None:
-            return jsonify({"error": "not recording"}), 400
-        state["stream"] = None
-
-    # stream.stop()/close() はコールバックスレッドの終了を待つため、
-    # state_lock を保持したまま呼ぶとコールバック側のロック取得待ちとデッドロックする。
-    # ロックの外で呼び出す。
-    stream.stop()
-    stream.close()
+    audio_file.save(str(RECORDING_PATH))
 
     with state_lock:
-        frames = state["frames"]
         target_sentence = state["target_sentence"]
-
-    if not frames:
-        return jsonify({"error": "no audio captured"}), 400
-
-    audio = np.concatenate(frames, axis=0)
-    write_wav(str(RECORDING_PATH), SAMPLE_RATE, audio)
-
-    peak = float(np.abs(audio).max()) if audio.size else 0.0
-    print(f"[record] captured {len(audio)} samples, peak amplitude={peak:.4f}"
-          + ("  !! ほぼ無音（マイク権限/デバイス選択を確認）" if peak < 0.01 else ""))
-
-    with state_lock:
-        state["has_recording"] = True
 
     result = whisper_model.transcribe(str(RECORDING_PATH), language="en")
     transcript = result["text"].strip()
     diff = build_diff(target_sentence, transcript)
 
     return jsonify({"transcript": transcript, "diff": diff})
-
-
-@app.route("/api/playback/mine", methods=["POST"])
-def api_playback_mine():
-    with state_lock:
-        has_recording = state["has_recording"]
-    if not has_recording:
-        return jsonify({"error": "no recording yet"}), 400
-    subprocess.run(["afplay", str(RECORDING_PATH)])
-    return jsonify({"status": "done"})
 
 
 if __name__ == "__main__":

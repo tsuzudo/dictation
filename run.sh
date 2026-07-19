@@ -9,7 +9,8 @@ SERVER_PID=$!
 
 # サーバーが起動するまで少し待つ（Whisperモデルの読み込みに数秒〜十数秒かかる）
 sleep 3
-open "http://127.0.0.1:5001"
+# ローカルテストはChromeで開く（-a で明示指定。Chromeが無ければ既定ブラウザにフォールバック）
+open -a "Google Chrome" "http://127.0.0.1:5001" 2>/dev/null || open "http://127.0.0.1:5001"
 
 echo "サーバーを起動しました (PID: $SERVER_PID)"
 echo "終了するには Ctrl+C を押すか、'kill $SERVER_PID' を実行してください。"
