@@ -1,13 +1,3 @@
----
-title: dictation
-emoji: 🎤
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # dictation — 英語発音チェックアプリ
 
 自分で用意した英文（プリセットまたは自由入力）を音読し、Whisper で文字起こしした結果と
@@ -45,9 +35,27 @@ pip install -r requirements.txt
 
 | 変数 | 既定値 | 説明 |
 |---|---|---|
-| `PORT` | `5001` | 待ち受けポート |
+| `PORT` | `5001`（コンテナでは `8080`） | 待ち受けポート |
 | `DICTATION_DEBUG` | （無効） | `1` で Flask のデバッグモードを有効化。**公開環境では絶対に有効にしないこと** |
 | `DICTATION_WHISPER_MODEL` | `base` | Whisper のモデルサイズ |
+
+## デプロイ（Google Cloud Run）
+
+`Dockerfile` を使ってコンテナとして動かします。ローカルの `./run.sh` とは独立しています。
+
+```bash
+gcloud run deploy dictation \
+  --source . \
+  --region us-central1 \
+  --memory 2Gi \
+  --cpu 2 \
+  --timeout 300 \
+  --allow-unauthenticated
+```
+
+- リージョンは無料枠の対象（`us-central1` / `us-east1` / `us-west1`）から選びます
+- アクセスが無い間はインスタンスが停止するため、久しぶりの初回アクセスは
+  モデル読み込みで十数秒かかります（コールドスタート）
 
 ## ドキュメント
 

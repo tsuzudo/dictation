@@ -1,8 +1,8 @@
-# Hugging Face Spaces（Docker SDK）用のイメージ定義（spec.txt 5-7節）
+# Google Cloud Run 用のイメージ定義（spec.txt 5-7節）
 # ローカル開発では使わない（ローカルは ./run.sh で Flask 開発サーバーを起動する）
 FROM python:3.11-slim
 
-# Spaces のコンテナは非root（uid 1000）で動くため、書き込み可能なホームを用意する
+# rootのまま動かさないための専用ユーザー（万一侵入されたときの影響を小さくする）
 RUN useradd -m -u 1000 user
 USER user
 # HF_HOME は Whisper モデルのキャッシュ先（書き込み可能な場所を明示する）
@@ -24,12 +24,13 @@ RUN python -c "from faster_whisper import WhisperModel; WhisperModel('${WHISPER_
 
 COPY --chown=user app/ ./app/
 
-# Spaces は 7860 番で待ち受ける決まり
-EXPOSE 7860
+# Cloud Run は待ち受けポートを環境変数 PORT で指定してくる（既定 8080）
+EXPOSE 8080
 
 # 本番用サーバー gunicorn で起動する。
+# $PORT を展開する必要があるため shell 形式で書く（exec でシグナルを正しく受け取る）
 # --workers 1 : Whisper モデルはプロセスごとにメモリへ読み込まれるため増やさない
 # --threads 4 : 複数人の同時アクセスを捌く（文字起こし自体は transcribe_lock で直列化）
 # --timeout 120 : 文字起こしに時間がかかってもワーカーを強制終了させない
-CMD ["gunicorn", "--chdir", "app", "--bind", "0.0.0.0:7860", \
-     "--workers", "1", "--threads", "4", "--timeout", "120", "app:app"]
+CMD exec gunicorn --chdir app --bind 0.0.0.0:${PORT:-8080} \
+    --workers 1 --threads 4 --timeout 120 app:app
