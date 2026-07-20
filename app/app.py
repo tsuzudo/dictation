@@ -1,12 +1,13 @@
 import difflib
 import json
+import os
 import random
 import re
 import threading
 from collections import deque
 from pathlib import Path
 
-import whisper
+from faster_whisper import WhisperModel
 from flask import Flask, jsonify, request, render_template
 
 APP_DIR = Path(__file__).resolve().parent
@@ -19,9 +20,16 @@ RECENT_LIMIT = 10
 
 app = Flask(__name__)
 
-print("Whisperモデルを読み込み中...")
-whisper_model = whisper.load_model("base")
+# 文字起こしエンジン（2026-07-20：openai-whisperからfaster-whisperへ移行。spec.txt 5-5節）
+# int8量子化でCPU推論。メモリ・速度ともに有利で、精度は同等
+WHISPER_MODEL_SIZE = os.environ.get("DICTATION_WHISPER_MODEL", "base")
+print(f"Whisperモデル（{WHISPER_MODEL_SIZE}）を読み込み中...")
+whisper_model = WhisperModel(WHISPER_MODEL_SIZE, device="cpu", compute_type="int8")
 print("読み込み完了。")
+
+# WhisperModelは複数スレッドから同時に呼ぶことを想定していないため、
+# 文字起こしは1件ずつ直列に処理する（Flaskはthreaded=Trueで動作）
+transcribe_lock = threading.Lock()
 
 with open(SENTENCES_PATH, encoding="utf-8") as f:
     SENTENCES = json.load(f)
@@ -251,8 +259,11 @@ def api_transcribe():
     with state_lock:
         target_sentence = state["target_sentence"]
 
-    result = whisper_model.transcribe(str(RECORDING_PATH), language="en")
-    transcript = result["text"].strip()
+    # faster-whisperのtranscribe()はセグメントのジェネレータを返すため、
+    # ここで消費して1つの文字列に連結する（ロック内で消費しきること）
+    with transcribe_lock:
+        segments, _info = whisper_model.transcribe(str(RECORDING_PATH), language="en")
+        transcript = "".join(segment.text for segment in segments).strip()
     diff = build_diff(target_sentence, transcript)
 
     return jsonify({"transcript": transcript, "diff": diff})

@@ -131,6 +131,8 @@ button:disabled {
   font-size: 17px;
   line-height: 2;
   margin-bottom: 6px;
+  /* 極端に長い1単語（URLや誤認識の連結など）でも枠をはみ出さない保険 */
+  overflow-wrap: anywhere;
 }
 
 .diff-row-label {

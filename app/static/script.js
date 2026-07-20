@@ -106,24 +106,53 @@ el.btnUseFreeText.addEventListener("click", async () => {
 // Chrome等では getVoices() が最初は空リストを返し、声は voiceschanged で非同期に読み込まれる。
 // 声が揃う前に読み上げると目的の声が見つからずブラウザ既定の声になる（初回だけお手本が変な音になる問題）。
 // そのため、初回の読み上げ前に声の読み込み完了を待つ。
+// （2026-07-20修正）「リストが1つでもあれば完了」では不十分だった。Chromeは
+// まずローカルの声だけを返し、その後 voiceschanged でネットワーク経由の声を
+// 追加で読み込む。1段目の時点で完了と判断すると目的の声がまだ無く、既定の声に
+// フォールバックしてしまう（初回だけお手本が変な音になる問題の再発）。
+// そこで「対応アクセント3つ分の言語が揃うまで」待つようにする。
+const VOICES_TIMEOUT_MS = 3000;
 let voicesReadyPromise = null;
+
+// 3アクセント（en-US/en-GB/en-AU）すべての声が出揃ったか
+function accentVoicesAvailable() {
+  const voices = window.speechSynthesis.getVoices();
+  if (voices.length === 0) return false;
+  return Object.values(ACCENT_VOICES).every((target) =>
+    voices.some((v) => v.lang.replace("_", "-") === target.lang)
+  );
+}
+
 function ensureVoicesLoaded() {
   if (voicesReadyPromise) return voicesReadyPromise;
   voicesReadyPromise = new Promise((resolve) => {
-    if (window.speechSynthesis.getVoices().length > 0) {
-      resolve();
-      return;
-    }
-    const done = () => {
-      window.speechSynthesis.removeEventListener("voiceschanged", done);
+    const startedAt = Date.now();
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.speechSynthesis.removeEventListener("voiceschanged", onChanged);
+      clearInterval(timer);
+      // 声が1つも取れないまま時間切れになった場合は、次回もう一度待ち直せるようにする
+      if (window.speechSynthesis.getVoices().length === 0) voicesReadyPromise = null;
       resolve();
     };
-    window.speechSynthesis.addEventListener("voiceschanged", done);
-    // voiceschanged が来ないブラウザ向けの保険（一定時間で諦めて既定の声で読む）
-    setTimeout(done, 1000);
+    const onChanged = () => {
+      if (accentVoicesAvailable()) finish();
+    };
+    // 揃わないブラウザ（en-AUが無い等）向けの保険。時間切れなら既定の声で読む
+    const timer = setInterval(() => {
+      if (accentVoicesAvailable() || Date.now() - startedAt > VOICES_TIMEOUT_MS) finish();
+    }, 100);
+    window.speechSynthesis.addEventListener("voiceschanged", onChanged);
+    if (accentVoicesAvailable()) finish();
   });
   return voicesReadyPromise;
 }
+
+// ボタンを押してから読み込み始めるのでは間に合わないため、ページ表示の時点で
+// 声の読み込みを先行させておく（押した時にはすでに揃っている状態にする）
+ensureVoicesLoaded();
 
 // getVoices() は読み込み直後に空を返すことがあるため、押下のたびに取得し直す
 function pickVoice(accent) {
@@ -318,5 +347,12 @@ function renderDiff(diff) {
 
     el.diffTarget.appendChild(targetSpan);
     el.diffSaid.appendChild(saidSpan);
+
+    // （2026-07-20修正）単語spanの間に空白文字が無いと、ブラウザは行全体を
+    // 折り返せない1単語とみなし、長い文でアプリの枠をはみ出す。単語の区切りは
+    // CSSのmargin-rightで付けているため、幅を増やさない<wbr>（折り返し可能位置）
+    // を挟んで改行できるようにする
+    el.diffTarget.appendChild(document.createElement("wbr"));
+    el.diffSaid.appendChild(document.createElement("wbr"));
   });
 }
