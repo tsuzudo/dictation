@@ -84,23 +84,54 @@ el.tabButtons.forEach((button) => {
   });
 });
 
-el.btnNextSentence.addEventListener("click", async () => {
-  const difficulty = getSelectedDifficulty();
-  const res = await fetch(`/api/sentence/random?difficulty=${difficulty}`);
-  const data = await res.json();
-  if (data.sentence) setSentence(data.sentence);
-});
+// （2026-07-20）サーバーは利用者ごとの状態を持たないため、直近の出題履歴は
+// ブラウザ側で保持し、出題のたびにサーバーへ送って除外してもらう（spec.txt 5-6節）。
+// sessionStorageに置くのでタブを閉じるとリセットされる
+const RECENT_KEY = "dictation.recentSentences";
+const RECENT_LIMIT = 10;
 
-el.btnUseFreeText.addEventListener("click", async () => {
-  const text = el.freeInput.value.trim();
-  if (!text) return;
-  const res = await fetch("/api/sentence/custom", {
+function loadRecentSentences() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(RECENT_KEY));
+    return Array.isArray(saved) ? saved : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function rememberSentence(sentence) {
+  const recent = loadRecentSentences();
+  recent.push(sentence);
+  // 古いものから溢れさせて直近RECENT_LIMIT件だけ残す
+  try {
+    sessionStorage.setItem(RECENT_KEY, JSON.stringify(recent.slice(-RECENT_LIMIT)));
+  } catch (err) {
+    // プライベートブラウズ等で保存できない場合は重複回避を諦める（出題自体は続行）
+  }
+}
+
+el.btnNextSentence.addEventListener("click", async () => {
+  const res = await fetch("/api/sentence/random", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({
+      difficulty: getSelectedDifficulty(),
+      recent: loadRecentSentences(),
+    }),
   });
   const data = await res.json();
-  if (data.sentence) setSentence(data.sentence);
+  if (data.sentence) {
+    rememberSentence(data.sentence);
+    setSentence(data.sentence);
+  }
+});
+
+el.btnUseFreeText.addEventListener("click", () => {
+  // 自由入力の文はサーバーに知らせる必要がない（録音送信時に一緒に送る）。
+  // 従来の /api/sentence/custom は廃止した
+  const text = el.freeInput.value.trim();
+  if (!text) return;
+  setSentence(text);
 });
 
 // Chrome等では getVoices() が最初は空リストを返し、声は voiceschanged で非同期に読み込まれる。
@@ -207,6 +238,9 @@ async function transcribeAndShow(blob) {
   setStatus("判定中...");
   const form = new FormData();
   form.append("audio", blob, "recording.webm");
+  // 出題文を録音と一緒に送る。サーバーが出題文を覚えないので、
+  // 同時に複数人が使っても他人の文と比較されることがない（spec.txt 5-6節）
+  form.append("target", el.targetSentence.textContent.trim());
   try {
     const res = await fetch("/api/transcribe", { method: "POST", body: form });
     const data = await res.json();

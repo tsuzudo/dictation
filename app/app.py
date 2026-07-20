@@ -3,8 +3,8 @@ import json
 import os
 import random
 import re
+import tempfile
 import threading
-from collections import deque
 from pathlib import Path
 
 from faster_whisper import WhisperModel
@@ -12,11 +12,6 @@ from flask import Flask, jsonify, request, render_template
 
 APP_DIR = Path(__file__).resolve().parent
 SENTENCES_PATH = APP_DIR / "sentences.json"
-# ブラウザからアップロードされた録音の一時保存先。形式（webm/opus/mp4等）は
-# 拡張子に依存せずffmpegが内容から判別するため、固定名でよい（spec.txt 5-4節）
-RECORDING_PATH = APP_DIR / "last_recording"
-# 一度出題した文は、その後この回数分の出題では再び出さない（spec.txt 4-1節）
-RECENT_LIMIT = 10
 
 app = Flask(__name__)
 
@@ -34,12 +29,8 @@ transcribe_lock = threading.Lock()
 with open(SENTENCES_PATH, encoding="utf-8") as f:
     SENTENCES = json.load(f)
 
-state_lock = threading.Lock()
-state = {
-    "target_sentence": "",
-    # 直近に出題した文（難易度をまたいで1つで管理。古いものから自動で溢れる）
-    "recent_sentences": deque(maxlen=RECENT_LIMIT),
-}
+# （2026-07-20）複数ユーザー対応のため、サーバーは利用者ごとの状態を持たない。
+# 出題文と直近の出題履歴はブラウザ側が保持する（spec.txt 5-6節）
 
 
 NUMBER_WORDS = {
@@ -217,55 +208,59 @@ def index():
     return render_template("index.html")
 
 
-@app.route("/api/sentence/random")
+@app.route("/api/sentence/random", methods=["POST"])
 def api_sentence_random():
-    difficulty = request.args.get("difficulty", "beginner")
+    # 直近の出題履歴はブラウザ（sessionStorage）が持ち、リクエストごとに送ってくる。
+    # サーバーは利用者ごとの状態を持たない（spec.txt 5-6節）
+    data = request.get_json(silent=True) or {}
+    difficulty = data.get("difficulty", "beginner")
     pool = SENTENCES.get(difficulty)
     if not pool:
         return jsonify({"error": "invalid difficulty"}), 400
-    with state_lock:
-        recent = state["recent_sentences"]
-        candidates = [s for s in pool if s not in recent]
-        # プールが RECENT_LIMIT 以下だと候補が尽きうるので、その場合は履歴を無視する
-        if not candidates:
-            candidates = pool
-        sentence = random.choice(candidates)
-        recent.append(sentence)
-        state["target_sentence"] = sentence
-    return jsonify({"sentence": sentence})
 
+    recent = data.get("recent")
+    recent = set(recent) if isinstance(recent, list) else set()
 
-@app.route("/api/sentence/custom", methods=["POST"])
-def api_sentence_custom():
-    data = request.get_json(force=True)
-    text = (data.get("text") or "").strip()
-    if not text:
-        return jsonify({"error": "text is empty"}), 400
-    with state_lock:
-        state["target_sentence"] = text
-    return jsonify({"sentence": text})
+    candidates = [s for s in pool if s not in recent]
+    # プールが RECENT_LIMIT 以下だと候補が尽きうるので、その場合は履歴を無視する
+    if not candidates:
+        candidates = pool
+    return jsonify({"sentence": random.choice(candidates)})
 
 
 @app.route("/api/transcribe", methods=["POST"])
 def api_transcribe():
-    # ブラウザ（MediaRecorder）で録音した音声を受け取り、文字起こし→判定して返す。
-    # 形式（webm/opus/mp4等）はブラウザ依存だが、WhisperがffmpegでそのままデコードするためWAV変換は不要（spec.txt 5-4節）
+    # ブラウザ（MediaRecorder）で録音した音声と、そのとき表示していた出題文を受け取り、
+    # 文字起こし→判定して返す。出題文をブラウザから受け取ることで、サーバーは
+    # 利用者ごとの状態を持たずに済む（spec.txt 5-6節）。
+    # 音声形式（webm/opus/mp4等）はブラウザ依存だが、WhisperがffmpegでそのままデコードするためWAV変換は不要（spec.txt 5-4節）
     audio_file = request.files.get("audio")
     if audio_file is None:
         return jsonify({"error": "no audio uploaded"}), 400
 
-    audio_file.save(str(RECORDING_PATH))
+    target_sentence = (request.form.get("target") or "").strip()
+    if not target_sentence:
+        return jsonify({"error": "no target sentence"}), 400
 
-    with state_lock:
-        target_sentence = state["target_sentence"]
+    # 一時ファイルはリクエストごとに作る（固定名だと同時利用時に
+    # 他人の音声で判定してしまうため）。拡張子に依存せずffmpegが形式を判別する
+    fd, temp_path = tempfile.mkstemp(prefix="dictation_", dir=str(APP_DIR))
+    os.close(fd)
+    try:
+        audio_file.save(temp_path)
 
-    # faster-whisperのtranscribe()はセグメントのジェネレータを返すため、
-    # ここで消費して1つの文字列に連結する（ロック内で消費しきること）
-    with transcribe_lock:
-        segments, _info = whisper_model.transcribe(str(RECORDING_PATH), language="en")
-        transcript = "".join(segment.text for segment in segments).strip()
+        # faster-whisperのtranscribe()はセグメントのジェネレータを返すため、
+        # ここで消費して1つの文字列に連結する（ロック内で消費しきること）
+        with transcribe_lock:
+            segments, _info = whisper_model.transcribe(temp_path, language="en")
+            transcript = "".join(segment.text for segment in segments).strip()
+    finally:
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
+
     diff = build_diff(target_sentence, transcript)
-
     return jsonify({"transcript": transcript, "diff": diff})
 
 
