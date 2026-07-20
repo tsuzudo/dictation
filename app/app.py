@@ -63,8 +63,93 @@ def _combine_number_run(words):
     return str(total + current)
 
 
+# 単位の表記ゆれ吸収（2026-07-20追加。spec.txt 5節）
+# 略記・米英つづり・複数形を、すべて「正規形（単数の英単語つづり）」へ寄せる。
+# 値が複数語のもの（mph等）は分割して展開する。
+# 英単語や他の意味と衝突する単独の in / m / t / s / c / f は意図的に含めない。
+def _unit_aliases():
+    # 正規形 -> その正規形に寄せる表記のリスト
+    groups = {
+        # 長さ
+        "millimeter": ["mm", "millimetre", "millimeters", "millimetres"],
+        "centimeter": ["cm", "centimetre", "centimeters", "centimetres"],
+        "meter": ["metre", "meters", "metres"],
+        "kilometer": ["km", "kms", "kilometre", "kilometers", "kilometres"],
+        "inch": ["inches"],
+        "foot": ["ft", "feet"],
+        "yard": ["yd", "yds", "yards"],
+        "mile": ["mi", "miles"],
+        # 重さ
+        "milligram": ["mg", "milligramme", "milligrams", "milligrammes"],
+        "gram": ["g", "gramme", "grams", "grammes"],
+        "kilogram": ["kg", "kgs", "kilo", "kilos", "kilogramme",
+                     "kilograms", "kilogrammes"],
+        "pound": ["lb", "lbs", "pounds"],
+        "ounce": ["oz", "ounces"],
+        "ton": ["tons", "tonne", "tonnes"],
+        # 体積
+        "milliliter": ["ml", "millilitre", "milliliters", "millilitres"],
+        "liter": ["l", "litre", "liters", "litres"],
+        "gallon": ["gal", "gals", "gallons"],
+        "quart": ["qt", "qts", "quarts"],
+        "pint": ["pt", "pts", "pints"],
+        "tablespoon": ["tbsp", "tablespoons"],
+        "teaspoon": ["tsp", "teaspoons"],
+        # 時間
+        "hour": ["hr", "hrs", "hours"],
+        "minute": ["min", "mins", "minutes"],
+        "second": ["sec", "secs", "seconds"],
+        # 速度（複数語に展開する）
+        "mile per hour": ["mph"],
+        "kilometer per hour": ["kph", "kmh"],
+        # 温度
+        "celsius": ["centigrade"],
+        "fahrenheit": [],
+        "degree": ["degrees"],
+        # データ量
+        "kilobyte": ["kb", "kilobytes"],
+        "megabyte": ["mb", "megabytes"],
+        "gigabyte": ["gb", "gigabytes"],
+        "terabyte": ["tb", "terabytes"],
+        # 割合・通貨
+        "percent": ["pct", "percents", "percentage"],
+        "dollar": ["dollars"],
+        "euro": ["euros"],
+        "cent": ["cents"],
+    }
+    aliases = {}
+    for canonical, variants in groups.items():
+        # 複数語の正規形（"mile per hour"）は、その各語が単独でも
+        # 正規形になっているため、キーとしては登録しない
+        if " " not in canonical:
+            aliases[canonical] = canonical
+        for variant in variants:
+            aliases[variant] = canonical
+    return aliases
+
+
+UNIT_ALIASES = _unit_aliases()
+
+
+def _replace_symbol_units(text):
+    # 記号を含む単位は、句読点除去で記号が消える前に単語へ置き換える
+    # 「25°C」は「25 degrees Celsius」と読まれるため degree を補う
+    text = re.sub(r"℃|°\s*c\b", " degree celsius ", text)
+    text = re.sub(r"℉|°\s*f\b", " degree fahrenheit ", text)
+    text = re.sub(r"°", " degree ", text)
+    text = text.replace("%", " percent ")
+    text = re.sub(r"\bkm\s*/\s*h(r|our)?\b", " kph ", text)
+    text = re.sub(r"\bmi(les?)?\s*/\s*h(r|our)?\b", " mph ", text)
+    # 通貨記号は「$5」のように単位が前に来るため、語順を入れ替える
+    text = re.sub(r"\$\s*([\d.,]+)", r" \1 dollar ", text)
+    text = re.sub(r"£\s*([\d.,]+)", r" \1 pound ", text)
+    text = re.sub(r"€\s*([\d.,]+)", r" \1 euro ", text)
+    return text
+
+
 def normalize_words(text):
     text = text.lower()
+    text = _replace_symbol_units(text)
     text = re.sub(r"[^\w\s']", "", text)
     words = text.split()
 
@@ -82,7 +167,8 @@ def normalize_words(text):
                 result.extend(str(NUMBER_WORDS[w]) for w in run)
             i = j
         else:
-            result.append(words[i])
+            # 単位は正規形へ（"kg" と "kilograms" をどちらも "kilogram" に）
+            result.extend(UNIT_ALIASES.get(words[i], words[i]).split())
             i += 1
     return result
 
