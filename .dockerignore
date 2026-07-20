@@ -1,0 +1,10 @@
+# Docker イメージに含めないもの（イメージを小さく保つため）
+.git
+.gitignore
+__pycache__
+*.pyc
+scripts/
+run.sh
+CLAUDE.md
+spec.txt
+UI_function.txt

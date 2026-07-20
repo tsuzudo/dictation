@@ -244,7 +244,8 @@ def api_transcribe():
 
     # 一時ファイルはリクエストごとに作る（固定名だと同時利用時に
     # 他人の音声で判定してしまうため）。拡張子に依存せずffmpegが形式を判別する
-    fd, temp_path = tempfile.mkstemp(prefix="dictation_", dir=str(APP_DIR))
+    # 保存先はOSの一時ディレクトリ（コンテナでもアプリ配置先が書き込み可能とは限らないため）
+    fd, temp_path = tempfile.mkstemp(prefix="dictation_")
     os.close(fd)
     try:
         audio_file.save(temp_path)
@@ -265,4 +266,11 @@ def api_transcribe():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, threaded=True, port=5001)
+    # ローカル開発用の起動。Hugging Face Spacesではgunicornが app:app を直接読み込むため
+    # ここは実行されない（spec.txt 5-7節）
+    # デバッグモードは既定で無効。公開環境で有効だとWerkzeugデバッガから
+    # 任意のコードを実行される危険があるため、明示的に指定した時だけ有効にする
+    # hostは既定（127.0.0.1）のまま。手元のMac以外からは繋がらないようにしておく
+    debug = os.environ.get("DICTATION_DEBUG") == "1"
+    port = int(os.environ.get("PORT", "5001"))
+    app.run(debug=debug, threaded=True, port=port)

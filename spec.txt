@@ -194,6 +194,37 @@ ollama/llama3は本アプリの必須要素ではなく、当面は使わない�
 ### 補足
 - 出題履歴を`sessionStorage`に置くため、タブを閉じると履歴はリセットされる（同一タブ内では従来通り直近10件を回避）。サーバーで全員分を覚える必要はないと判断した。
 
+## 5-7. Hugging Face Spaces用の構成整備（2026-07-20決定・実施）
+
+### Spaceの基本設定
+- Space名：**dictation**（URLは `huggingface.co/spaces/<ユーザーID>/dictation`）
+- SDK：**Docker**（既存のFlaskアプリをそのまま動かすため。Gradio/Streamlit SDKは使わない）
+- 公開範囲：当面**Private**（開発中は非公開。完成後にPublicへ切り替える。5-5節）
+- Spacesの設定はREADME.md冒頭のYAMLフロントマターに記述する（`sdk: docker`、`app_port: 7860`等）
+
+### ローカルとSpacesの二本立て
+- ローカル：従来通り`./run.sh`（`python3 app.py`／Flask開発サーバー／ポート5001）。**手元の使い勝手は変えない**
+- Spaces：Dockerコンテナ上でgunicorn（本番用WSGIサーバー）／ポート7860
+- 開発環境にDocker Desktopは導入しない方針のため、**Dockerイメージのローカル検証はできない**。代わりにDocker以外の部分（gunicorn起動・ポート/デバッグの環境変数切り替え）はローカルで検証してからデプロイする。
+
+### 環境変数による切り替え
+- `PORT`：待ち受けポート（既定5001。Spacesでは7860）
+- `DICTATION_DEBUG`：Flaskのデバッグモード（既定は無効。ローカルで開発したい時のみ`1`）
+  - 公開環境でデバッグモードを有効にすると、Werkzeugデバッガ経由で任意のコードを実行される危険があるため、**既定を無効**とし明示的に有効化する方式にした（従来は`debug=True`が直書きだった）
+- `DICTATION_WHISPER_MODEL`：Whisperのモデルサイズ（既定`base`）
+
+### 本番用サーバー：gunicorn
+- Flask付属の開発サーバーは公式に本番利用が非推奨（同時アクセスに弱い）なため、Spacesでは**gunicorn**でFlaskアプリを起動する。
+- Whisperの文字起こしはCPUを長時間占有するため、タイムアウトを延長し（`--timeout 120`）、ワーカーは**1プロセス・複数スレッド**構成とする。
+  - 理由：Whisperモデルはプロセスごとにメモリへ読み込まれるため、ワーカーを増やすとメモリが倍増する。かつ`transcribe_lock`による直列化はプロセス内でしか効かない。無料CPU枠では1ワーカーが妥当。
+
+### ffmpegは不要（faster-whisper移行の副次効果）
+- 旧`openai-whisper`は外部コマンドの`ffmpeg`を呼んでいたが、`faster-whisper`は**PyAV**（ffmpegをPythonライブラリとして取り込んだもの）で音声をデコードするため、**システムへのffmpegインストールが不要**になった（5-4節の記述はopenai-whisper時代のもの）。Dockerイメージが軽くなる。
+
+### Whisperモデルの事前ダウンロード
+- 初回起動時にモデルをダウンロードすると時間がかかる（ローカル実測52秒）ため、**Dockerイメージのビルド時にダウンロードしておく**。
+- Spacesのコンテナは非rootユーザーで動くため、キャッシュ先（`HF_HOME`）を書き込み可能なディレクトリに設定する。
+
 ## 6. 対応アクセント
 - MVPでは米語のみ対応（Whisperの英語専用モデル or 標準モデルを使用。モデル選定はUI/機能設計書または技術選定で決定）
 - 英国・オーストラリア等の他アクセント対応は将来拡張とし、MVPのスコープ外とする
