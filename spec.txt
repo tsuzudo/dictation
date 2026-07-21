@@ -73,6 +73,12 @@ ollama/llama3は本アプリの必須要素ではなく、当面は使わない�
   - 記号を含むもの（%、℃、°F、km/h、$5）は句読点除去より前に単語へ置き換える。通貨記号は語順が逆になるため「$5」→「5 dollar」と並べ替える
   - 単位の複数形は単数に寄せる（「5 kg」を「five kilograms」と読んでも一致）。略記側からは複数かどうか判別できないため、単位に限り複数形のsの発音差は不問とする（ユーザー了承済み）
   - 単独の「in」「m」「t」「s」「c」「f」は英単語や他の意味と衝突するため、略記としては扱わない（それぞれinch/meter/ton/second/celsius/fahrenheitへの変換はしない）
+- （2026-07-21追記）米英つづりの揺れを許容する：出題文が「favor」で文字起こし結果が「favour」になる（またはその逆）ケースが不一致と判定される不具合への対応。単語を米式つづりの正規形に寄せてから比較する（`app.py`の`_normalize_spelling()`／`SPELLING_RULES`・`SPELLING_ALIASES`・`SPELLING_EXCEPTIONS`）。方式はハイブリッド：
+  - 語尾の規則変換（英式→米式）：-our→-or（colour/favour/honour等）、-ise→-ize（organise/realise等）、-isation→-ization、-yse→-yze（analyse等）、-tre/-bre→-ter/-ber（centre/fibre等）
+  - 規則が誤爆する語は除外リスト（`SPELLING_EXCEPTIONS`）で保護する。例：promise・surprise・exercise（-iseだが米式でも-ise）、hour・four・pour・sour（-ourだが変換すると別語/非語）、macabre（-breだが変換不可）
+  - 規則で拾えない不規則な差は個別辞書（`SPELLING_ALIASES`）で補う。例：defence→defense、licence→license、grey→gray、catalogue→catalog、programme→program、tyre→tire、aluminium→aluminum、traveller→traveler、cheque→check、pyjamas→pajamas
+  - 正規化順序は「米英つづり→単位エイリアス」。metre等は綴り正規化後も`UNIT_ALIASES`が受け、従来通り meter に寄る
+  - 検証：米英ペア32組が一致・誤爆させてはいけない語30語が不変・全プリセット320文が例外なく通過することを確認済み（ユーザー報告の favor/favour ケースの解消）
 
 ## 5-1. お手本音声・自分の発音の再生（2026-07-14追加）
 - お手本音声：出題文をmacOS標準の`say`コマンドでその場で音声合成し再生する（事前録音・追加ソフト不要）
@@ -331,3 +337,4 @@ ollama/llama3は本アプリの必須要素ではなく、当面は使わない�
 - 2026-07-20：**一般公開を実施（5-8節）。** Google Cloud Runへデプロイし、https://dictation-1054688819377.us-central1.run.app で公開。スマホ実機での録音・判定まで動作確認済みで、5-4節から持ち越していたHTTPS必須の課題も解決した。あわせて5-6節（複数ユーザー対応）・5-7節（コンテナ構成）も完了し、5-5節に挙げた一般公開の残作業3点はすべて片付いた。判定速度は体感でやや遅いが我慢できる範囲としてチューニングは見送り（要因の切り分けは5-8節に記録）。
 - 2026-07-20：一般公開のホスティング先をHugging Face Spaces（無料CPU枠）に決定（5-5節）。HTTPSが標準で付くため5-4節のgetUserMedia要件が解決し、cloudflaredによる一時トンネル案は不採用とした。コードはSpacesの仕組み上アプリと一体で公開されるが、開発中はPrivate・完成後にPublicとする運用で合意（Privateのままでも本人はスマホ含めテスト可能）。文字起こしは外部APIに出さずサーバー内Whisperで完結する方針を維持（5-2節との整合）。残作業を①faster-whisperへの乗り換え②複数ユーザー対応③Spaces用構成整備の順で実施すると決定。
 - 2026-07-20：出題文が「kilogram」でも文字起こし結果が「kg」になり不一致と判定される不具合を発見。判定ロジックに単位の表記ゆれ許容を追加（5節）。長さ・重さ・体積・時間・速度・温度・データ量・割合・通貨の主要な単位について、略記／つづり違い（米英）／複数形を正規形に統一してから比較する（`app.py`の`UNIT_ALIASES`）。記号を含む表記（%、℃、km/h、$5）は句読点除去の前に単語へ置き換える。英単語と衝突する単独の「in」「m」「t」「s」「c」「f」は略記として扱わない。
+- 2026-07-21：出題文が「favor」でも文字起こし結果が「favour」になり不一致と判定される不具合を発見。判定ロジックに米英つづりの揺れ許容を追加（5節）。語尾規則（-our→-or、-ise→-ize、-isation→-ization、-yse→-yze、-tre/-bre→-ter/-ber）で英式を米式へ機械変換しつつ、規則が誤爆する語（promise・hour・macabre等）は除外リストで保護、規則で拾えない不規則な差（defence→defense、grey→gray、catalogue→catalog等）は個別辞書で補うハイブリッド方式（`app.py`の`_normalize_spelling()`）。米英ペア32組の一致・誤爆30語の不変・全320文の通過を確認済み。
