@@ -33,7 +33,6 @@ const el = {
   diffTarget: document.getElementById("diff-target"),
   diffSaid: document.getElementById("diff-said"),
   btnPlayMine: document.getElementById("btn-play-mine"),
-  btnRetry: document.getElementById("btn-retry"),
 };
 
 function getSelectedAccent() {
@@ -61,6 +60,10 @@ function setSentence(sentence) {
   el.btnRecord.disabled = false;
   el.resultSection.classList.add("hidden");
   el.btnPlayMine.disabled = true;
+  // 新しい出題ではまだ一度も録音していないので「録音開始」表示に戻す
+  el.btnRecord.textContent = "● 録音開始";
+  el.btnRecord.classList.remove("recording");
+  state.isRecording = false;
 }
 
 function setControlsEnabled(enabled) {
@@ -70,7 +73,6 @@ function setControlsEnabled(enabled) {
   el.btnNextSentence.disabled = !enabled;
   el.btnUseFreeText.disabled = !enabled;
   el.btnPlayModel.disabled = !enabled || !state.hasSentence;
-  el.btnRetry.disabled = !enabled;
 }
 
 el.tabButtons.forEach((button) => {
@@ -317,7 +319,8 @@ async function startRecording() {
 function stopRecording() {
   el.btnRecord.disabled = true;
   state.isRecording = false;
-  el.btnRecord.textContent = "● 録音開始";
+  // 一度録音した後は再録音できるよう「再度録音」表示にする（次の出題で「録音開始」へ戻す）
+  el.btnRecord.textContent = "● 再度録音";
   el.btnRecord.classList.remove("recording");
   // 実際の判定は MediaRecorder の stop イベント（finalizeRecording）で行う
   if (state.mediaRecorder && state.mediaRecorder.state !== "inactive") {
@@ -331,10 +334,6 @@ el.btnRecord.addEventListener("click", () => {
   } else {
     startRecording();
   }
-});
-
-el.btnRetry.addEventListener("click", () => {
-  startRecording();
 });
 
 el.btnPlayMine.addEventListener("click", () => {
