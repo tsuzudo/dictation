@@ -7,8 +7,11 @@ const state = {
   mediaRecorder: null,
   mediaStream: null,
   recordedChunks: [],
-  // 自分の発音の再生用。録音Blobから作るObjectURL（前回分は録音のたびに解放する）
+  // あなたの録音の再生用。録音Blobから作るObjectURL（前回分は録音のたびに解放する）
   myAudioUrl: null,
+  // 言語切替で出し直せるよう、状態で変わる文言は「文字列」ではなく「キー」で持つ（UI_function.txt 3-9節）
+  recordButtonKey: "btn.record",
+  statusKey: "",
 };
 
 // アクセントごとのお手本の声（spec.txt 5-2節）
@@ -33,7 +36,119 @@ const el = {
   diffTarget: document.getElementById("diff-target"),
   diffSaid: document.getElementById("diff-said"),
   btnPlayMine: document.getElementById("btn-play-mine"),
+  langButtons: document.querySelectorAll(".lang-button"),
 };
+
+// ===== 日英ローカライズ（spec.txt 5-9節・UI_function.txt 3-9節） =====
+// 画面文言はすべてここに集約する。HTML側の data-i18n="キー" を目印に一括で差し替える。
+// この対訳表が文言の正。増やすときは en/ja の両方に同じキーを足すこと。
+const I18N = {
+  en: {
+    "app.title": "Dictation - Pronunciation Check",
+    "accent.label": "Accent:",
+    "accent.us": "US",
+    "accent.uk": "UK",
+    "accent.au": "AU",
+    "tab.random": "Random",
+    "tab.free": "Free Input",
+    "difficulty.label": "Difficulty:",
+    "difficulty.beginner": "Easy",
+    "difficulty.intermediate": "Medium",
+    "difficulty.advanced": "Hard",
+    "btn.nextSentence": "Next Sentence",
+    "free.placeholder": "Enter an English sentence to practice",
+    "btn.useFreeText": "Use This Sentence",
+    "sentence.label": "Sentence:",
+    "btn.playModel": "▶ Model",
+    "btn.record": "● Record",
+    "btn.stop": "■ Stop",
+    "btn.recordAgain": "● Record Again",
+    "result.heading": "Result",
+    "result.target": "Target:",
+    "result.said": "You said:",
+    "btn.playMine": "▶ Your Recording",
+    "status.checking": "Checking...",
+    "status.checkFailed": "Check failed",
+    "status.modelFailed": "Failed to play the model audio",
+    "status.micUnavailable": "Microphone unavailable. Please check your browser's microphone permission.",
+  },
+  ja: {
+    "app.title": "Dictation - 発音チェック",
+    "accent.label": "アクセント：",
+    "accent.us": "米",
+    "accent.uk": "英",
+    "accent.au": "豪",
+    "tab.random": "ランダム出題",
+    "tab.free": "自由入力",
+    "difficulty.label": "難易度：",
+    "difficulty.beginner": "初級",
+    "difficulty.intermediate": "中級",
+    "difficulty.advanced": "上級",
+    "btn.nextSentence": "次の文章を出す",
+    "free.placeholder": "発音したい英文を入力してください",
+    "btn.useFreeText": "この文章で出題",
+    "sentence.label": "出題文：",
+    "btn.playModel": "▶ お手本",
+    "btn.record": "● 録音開始",
+    "btn.stop": "■ 録音終了",
+    "btn.recordAgain": "● 再度録音",
+    "result.heading": "結果",
+    "result.target": "出題文：",
+    "result.said": "あなたの発音：",
+    "btn.playMine": "▶ あなたの録音",
+    "status.checking": "判定中...",
+    "status.checkFailed": "判定に失敗しました",
+    "status.modelFailed": "お手本の再生に失敗しました",
+    "status.micUnavailable": "マイクを使用できません（ブラウザのマイク許可を確認してください）",
+  },
+};
+
+const LANG_KEY = "dictation.lang";
+const DEFAULT_LANG = "en"; // ブラウザ言語による自動判定はしない（spec.txt 5-9節）
+let currentLang = DEFAULT_LANG;
+
+function loadSavedLang() {
+  try {
+    const saved = localStorage.getItem(LANG_KEY);
+    if (saved && I18N[saved]) return saved;
+  } catch (err) {
+    // プライベートブラウズ等で読めない場合は既定言語で開く
+  }
+  return DEFAULT_LANG;
+}
+
+// キーから現在の言語の文言を引く。未定義のキーは英語→キー名の順にフォールバックする
+function t(key) {
+  return (I18N[currentLang] && I18N[currentLang][key]) || I18N[DEFAULT_LANG][key] || key;
+}
+
+function applyLanguage(lang) {
+  currentLang = I18N[lang] ? lang : DEFAULT_LANG;
+  try {
+    localStorage.setItem(LANG_KEY, currentLang);
+  } catch (err) {
+    // 保存できなくても切替自体は成立させる（次回は既定言語に戻る）
+  }
+
+  document.documentElement.lang = currentLang;
+  document.title = t("app.title");
+  document.querySelectorAll("[data-i18n]").forEach((node) => {
+    node.textContent = t(node.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => {
+    node.placeholder = t(node.dataset.i18nPlaceholder);
+  });
+
+  // 状態で文言が変わる箇所は、今の状態のまま表示だけ出し直す
+  updateRecordButton();
+  renderStatus();
+
+  el.langButtons.forEach((b) => b.classList.toggle("active", b.dataset.lang === currentLang));
+}
+
+el.langButtons.forEach((button) => {
+  button.addEventListener("click", () => applyLanguage(button.dataset.lang));
+});
 
 function getSelectedAccent() {
   return document.querySelector('input[name="accent"]:checked').value;
@@ -43,14 +158,25 @@ function getSelectedDifficulty() {
   return document.querySelector('input[name="difficulty"]:checked').value;
 }
 
-function setStatus(text) {
-  if (!text) {
+// 引数は文言そのものではなくI18Nのキー（言語を切り替えても出し直せるようにするため）。空文字で非表示
+function setStatus(key) {
+  state.statusKey = key || "";
+  renderStatus();
+}
+
+function renderStatus() {
+  if (!state.statusKey) {
     el.statusIndicator.classList.add("hidden");
     el.statusIndicator.textContent = "";
     return;
   }
   el.statusIndicator.classList.remove("hidden");
-  el.statusIndicator.textContent = text;
+  el.statusIndicator.textContent = t(state.statusKey);
+}
+
+// 録音ボタンは状態（未録音／録音中／録音済み）で文言が変わるため、キーから毎回引き直す
+function updateRecordButton() {
+  el.btnRecord.textContent = t(state.recordButtonKey);
 }
 
 function setSentence(sentence) {
@@ -61,7 +187,8 @@ function setSentence(sentence) {
   el.resultSection.classList.add("hidden");
   el.btnPlayMine.disabled = true;
   // 新しい出題ではまだ一度も録音していないので「録音開始」表示に戻す
-  el.btnRecord.textContent = "● 録音開始";
+  state.recordButtonKey = "btn.record";
+  updateRecordButton();
   el.btnRecord.classList.remove("recording");
   state.isRecording = false;
 }
@@ -219,7 +346,7 @@ el.btnPlayModel.addEventListener("click", async () => {
   utterance.addEventListener("error", (event) => {
     // cancel() による中断は想定内なので、エラー表示はしない
     if (event.error !== "canceled" && event.error !== "interrupted") {
-      setStatus("お手本の再生に失敗しました");
+      setStatus("status.modelFailed");
     }
     finish();
   });
@@ -237,7 +364,7 @@ function stopModelPlayback() {
 
 // 録音後、Blobをサーバーへ送って文字起こし・判定してもらう
 async function transcribeAndShow(blob) {
-  setStatus("判定中...");
+  setStatus("status.checking");
   const form = new FormData();
   form.append("audio", blob, "recording.webm");
   // 出題文を録音と一緒に送る。サーバーが出題文を覚えないので、
@@ -251,11 +378,11 @@ async function transcribeAndShow(blob) {
       el.resultSection.classList.remove("hidden");
       el.btnPlayMine.disabled = false;
     } else {
-      setStatus("判定に失敗しました");
+      setStatus("status.checkFailed");
       return;
     }
   } catch (err) {
-    setStatus("判定に失敗しました");
+    setStatus("status.checkFailed");
     return;
   } finally {
     setControlsEnabled(true);
@@ -276,7 +403,7 @@ function finalizeRecording() {
   });
   state.mediaRecorder = null;
 
-  // 前回の自分の発音のURLを解放してから差し替える
+  // 前回の録音のURLを解放してから差し替える
   if (state.myAudioUrl) URL.revokeObjectURL(state.myAudioUrl);
   state.myAudioUrl = URL.createObjectURL(blob);
 
@@ -294,7 +421,7 @@ async function startRecording() {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (err) {
     // 許可されなかった/マイクが無い場合。録音は始めず初期状態のまま知らせる
-    setStatus("マイクを使用できません（ブラウザのマイク許可を確認してください）");
+    setStatus("status.micUnavailable");
     return;
   }
 
@@ -311,7 +438,8 @@ async function startRecording() {
   recorder.start();
 
   state.isRecording = true;
-  el.btnRecord.textContent = "■ 録音終了";
+  state.recordButtonKey = "btn.stop";
+  updateRecordButton();
   el.btnRecord.classList.add("recording");
   el.btnRecord.disabled = false;
 }
@@ -320,7 +448,8 @@ function stopRecording() {
   el.btnRecord.disabled = true;
   state.isRecording = false;
   // 一度録音した後は再録音できるよう「再度録音」表示にする（次の出題で「録音開始」へ戻す）
-  el.btnRecord.textContent = "● 再度録音";
+  state.recordButtonKey = "btn.recordAgain";
+  updateRecordButton();
   el.btnRecord.classList.remove("recording");
   // 実際の判定は MediaRecorder の stop イベント（finalizeRecording）で行う
   if (state.mediaRecorder && state.mediaRecorder.state !== "inactive") {
@@ -389,3 +518,6 @@ function renderDiff(diff) {
     el.diffSaid.appendChild(document.createElement("wbr"));
   });
 }
+
+// 起動時に、前回選んだ言語（無ければ既定の英語）でUI全体を描画する
+applyLanguage(loadSavedLang());

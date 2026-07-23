@@ -15,9 +15,43 @@ body {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
+/* タイトルと言語切替を1行に並べる。狭い画面では折り返して縦積みになる（UI_function.txt 3-9節） */
+.app-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 20px;
+}
+
 h1 {
   font-size: 20px;
-  margin-bottom: 20px;
+  margin: 0;
+}
+
+.lang-switch {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.lang-button {
+  font-size: 12px;
+  padding: 4px 10px;
+  color: #86868b;
+}
+
+.lang-button.active {
+  background: #007aff;
+  border-color: #007aff;
+  color: #fff;
+  font-weight: 600;
+}
+
+/* 選択中の言語ボタンはホバーで色が薄くならないようにする */
+.lang-button.active:hover:not(:disabled) {
+  background: #007aff;
 }
 
 h2 {
@@ -135,10 +169,14 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+/* （2026-07-23）従来は全角スペースでラベル幅を揃えていたが、英語表示では揃わないため
+   CSSで幅を確保する方式に変更した。7emは日本語の「あなたの発音：」が収まる幅 */
 .diff-row-label {
   color: #86868b;
   font-size: 13px;
   margin-right: 6px;
+  display: inline-block;
+  min-width: 7em;
 }
 
 .diff-row span.word {
@@ -180,9 +218,12 @@ button:disabled {
     border-radius: 10px;
   }
 
+  .app-header {
+    margin-bottom: 16px;
+  }
+
   h1 {
     font-size: 18px;
-    margin-bottom: 16px;
   }
 
   /* アクセント・難易度のラジオは行間とタップ領域を広げる */
