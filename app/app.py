@@ -130,6 +130,126 @@ def _unit_aliases():
 UNIT_ALIASES = _unit_aliases()
 
 
+# 米英つづりの揺れ許容（spec.txt 5節）。英式のつづりを米式へ寄せてから比較する。
+# 方式はハイブリッド：(1)語尾の規則で機械変換し、(2)誤爆する語は除外リストで守り、
+# (3)規則で拾えない不規則な差は個別辞書で補う。
+#
+# 変換は出題文・文字起こし結果の「両方」に同じようにかかるため、変換結果が
+# 実在しない語（devour -> devor）になっても不一致にはならない。実害が出るのは
+# 「別の実在語と同じ形になる」場合だけなので（four -> for、timbre -> timber）、
+# 除外リストはそこを重点的に守る。
+SPELLING_RULES = (
+    # -isation -> -ization（organisation）
+    (re.compile(r"isation(s?)$"), r"ization\1"),
+    # -yse -> -yze（analyse / analysed / analysing）
+    (re.compile(r"ys(e|es|ed|ing)$"), r"yz\1"),
+    # -our -> -or（colour、favourite、colourful、neighbourhood、laboured）
+    # 語尾だけでなく派生形にも効かせる。ここに無い綴り（courage、journey、
+    # flourish など「our」を含むだけの語）には効かない
+    (re.compile(r"our(s|ed|ing|er|ers|ite|ites|ful|hood|less|able)?$"), r"or\1"),
+    # -ise -> -ize（organise / organised / organising）
+    (re.compile(r"is(e|es|ed|ing)$"), r"iz\1"),
+    # -tre -> -ter、-bre -> -ber（centre、metre、fibre）
+    (re.compile(r"tre(s?)$"), r"ter\1"),
+    (re.compile(r"bre(s?)$"), r"ber\1"),
+)
+
+# 規則で拾えない不規則な差。単数形だけ書いておけば複数形（-s）も引ける
+SPELLING_ALIASES = {
+    # 名詞の -ce（英）-> -se（米）
+    "defence": "defense",
+    "offence": "offense",
+    "licence": "license",
+    "pretence": "pretense",
+    "practise": "practice",
+    "practised": "practiced",
+    "practising": "practicing",
+    # -ogue -> -og
+    "catalogue": "catalog",
+    "dialogue": "dialog",
+    "monologue": "monolog",
+    # 子音を重ねる英式 -> 重ねない米式
+    "traveller": "traveler",
+    "travelled": "traveled",
+    "travelling": "traveling",
+    "cancelled": "canceled",
+    "cancelling": "canceling",
+    "labelled": "labeled",
+    "labelling": "labeling",
+    "modelled": "modeled",
+    "modelling": "modeling",
+    "jewellery": "jewelry",
+    # その他の不規則な差
+    "grey": "gray",
+    "programme": "program",
+    "tyre": "tire",
+    "aluminium": "aluminum",
+    "cheque": "check",
+    "pyjamas": "pajamas",
+    "plough": "plow",
+    "mould": "mold",
+    "moustache": "mustache",
+    "kerb": "curb",
+    "draught": "draft",
+    "sceptical": "skeptical",
+    "storey": "story",
+    "speciality": "specialty",
+    "manoeuvre": "maneuver",
+    "aeroplane": "airplane",
+    "cosy": "cozy",
+    # 過去形の英式変化（Whisperがどちらで書き起こすか揺れるため寄せる）
+    "learnt": "learned",
+    "spelt": "spelled",
+    "dreamt": "dreamed",
+}
+
+
+def _spelling_exceptions():
+    # 規則を当ててはいけない語。活用形（-s/-ed/-ing）もまとめて守る
+    bases = {
+        # -our で終わるが英式の接尾辞ではない語。
+        # four -> for は別の実在語と衝突するため必ず守る。
+        # hour は変換すると UNIT_ALIASES（時間の単位）に当たらなくなるため必須
+        "our", "your", "four", "hour", "pour", "sour", "tour", "flour",
+        "scour", "devour", "contour", "detour", "velour", "dour",
+        # -ise で終わるが米式でも -ise のままの語
+        "promise", "surprise", "exercise", "compromise", "advertise",
+        "merchandise", "franchise", "disguise", "despise", "revise",
+        "devise", "supervise", "improvise", "arise", "rise", "wise",
+        "otherwise", "likewise", "clockwise",
+        "praise", "raise", "cruise", "noise", "prise", "precise", "concise",
+        "paradise", "expertise", "treatise", "guise", "premise",
+        # -bre で終わるが変換できない語。timbre -> timber は別語と衝突する
+        "macabre", "timbre",
+    }
+    words = set()
+    for base in bases:
+        words.update({base, base + "s", base + "d", base + "ed", base + "ing"})
+        if base.endswith("e"):
+            # promise -> promising のように e を落とす活用形
+            words.add(base[:-1] + "ing")
+    return frozenset(words)
+
+
+SPELLING_EXCEPTIONS = _spelling_exceptions()
+
+
+def _normalize_spelling(word):
+    if word in SPELLING_EXCEPTIONS:
+        return word
+    # 個別辞書が最優先。単数形で登録しておけば複数形（-s）も引ける
+    if word in SPELLING_ALIASES:
+        return SPELLING_ALIASES[word]
+    if word.endswith("s") and word[:-1] in SPELLING_ALIASES:
+        return SPELLING_ALIASES[word[:-1]] + "s"
+    for pattern, replacement in SPELLING_RULES:
+        new_word, count = pattern.subn(replacement, word)
+        # 語そのものが接尾辞と同じ長さになる（our -> or）変換はしない
+        if count and new_word != word and len(word) > 3:
+            return new_word
+    return word
+
+
 def _replace_symbol_units(text):
     # 記号を含む単位は、句読点除去で記号が消える前に単語へ置き換える
     # 「25°C」は「25 degrees Celsius」と読まれるため degree を補う
@@ -166,8 +286,11 @@ def normalize_words(text):
                 result.extend(str(NUMBER_WORDS[w]) for w in run)
             i = j
         else:
+            # 先に米英つづりを米式へ寄せる（"favour" -> "favor"、"metre" -> "meter"）。
+            # 単位より先に行うことで、綴り違いの単位も UNIT_ALIASES が受けられる
+            word = _normalize_spelling(words[i])
             # 単位は正規形へ（"kg" と "kilograms" をどちらも "kilogram" に）
-            result.extend(UNIT_ALIASES.get(words[i], words[i]).split())
+            result.extend(UNIT_ALIASES.get(word, word).split())
             i += 1
     return result
 
