@@ -13,3 +13,6 @@ app/last_recording
 # Python
 __pycache__/
 *.pyc
+
+# Claude Code のローカル設定（個人の許可ルール）
+.claude/settings.local.json

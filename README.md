@@ -44,6 +44,16 @@ pip install -r requirements.txt
 `Dockerfile` を使ってコンテナとして動かします。ローカルの `./run.sh` とは独立しています。
 
 ```bash
+./deploy.sh
+```
+
+`./deploy.sh` は「gcloud の設定確認 → デプロイ → 公開URLへの疎通確認」を順に行います。
+最後の確認では、デプロイ自体は成功してもアプリが 500 を返している状態を検出するため、
+トップページに加えて出題 API も叩きます。
+
+実行しているデプロイコマンドは以下です（引数を変える場合は `deploy.sh` と揃えること）。
+
+```bash
 gcloud run deploy dictation \
   --source . \
   --region us-central1 \
