@@ -40,6 +40,10 @@
 - `sentences.json`は`app/static/`にある（ブラウザが`fetch`で取りに行くため）
 - 判定ロジックは`app/static/scoring.js`（`app.py`からの移植）。**両者を変更したら
   `python3 tests/compare_scoring.py` で出力が一致することを必ず確認する**
+- **Transformers.jsは`3.8.1`、deviceは`wasm`に固定すること（spec.txt 9-4節）。**
+  4系はWASMで量子化モデルを読めず、3.8.1はWebGPUだと出力が壊れる。どちらも
+  「WebGPUが使える環境では正常に見える」ため、変更する場合は**WebGPUを無効にした状態で
+  文字起こし結果まで**実機確認すること（`tests/browser_check.html`が両方を検査する）
 
 ## Deployment（Google Cloud Run・戻り先として維持）
 

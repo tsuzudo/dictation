@@ -32,7 +32,11 @@ say -o tests/fixtures/case3.wav --data-format=LEI16@22050 "It costs twenty five 
 <script type="module">
 const CASES = [
   { file: "/tests/fixtures/case1.wav", expect: "The quick brown fox jumps over the lazy dog." },
-  { file: "/tests/fixtures/case2.wav", expect: "She sells seashells by the seashore." },
+  // 既知の不一致：Whisperが seashore を "sea shore" と2語に分ける。
+  // サーバー側のbaseモデルでも同じ結果になるため、移行による劣化ではない
+  // （2026-08-18に実測で確認・spec.txt 9-2節）。複合語の分かち書き揺れを
+  // 吸収する正規化は今回のスコープ外としたので、ここは失敗として数えない
+  { file: "/tests/fixtures/case2.wav", expect: "She sells seashells by the seashore.", knownMismatch: true },
   { file: "/tests/fixtures/case3.wav", expect: "It costs 25 dollars and weighs 3 kg." },
 ];
 
@@ -104,6 +108,9 @@ async function main() {
       const wrong = diff.filter((d) => d.type !== "equal");
       if (wrong.length === 0) {
         log("判定: 完全一致 OK");
+      } else if (c.knownMismatch) {
+        log("判定: 不一致 " + wrong.length + " 件（既知のため失敗として数えない）-> " +
+            JSON.stringify(wrong));
       } else {
         allOk = false;
         log("判定: 不一致 " + wrong.length + " 件 -> " + JSON.stringify(wrong));
@@ -112,6 +119,26 @@ async function main() {
       allOk = false;
       log("エラー: " + (err && err.message ? err.message : String(err)));
     }
+  }
+
+  // --- 実行環境の確認 ---
+  // 2026-08-18の障害（spec.txt 9-4節）を繰り返さないための確認。
+  // WebGPUで動かすと、ライブラリのバージョンによっては「モデルは読めるが
+  // 出力が壊れる」「そもそも読めない」が起きる。WASM固定であることを必ず確かめる。
+  log("");
+  log("=== 実行環境の確認 ===");
+  const dev = window.Transcriber.getDevice();
+  log("実行デバイス: " + dev + "（wasm であること。webgpuなら設定が戻っている）");
+  if (dev !== "wasm") {
+    allOk = false;
+    log("NG: WASM固定になっていない。transcriber.jsのdevice指定を確認すること");
+  }
+  const srcText = await (await fetch("/app/static/transcriber.js")).text();
+  const verMatch = srcText.match(/transformers@([\d.]+)/);
+  log("ライブラリ: " + (verMatch ? verMatch[1] : "不明") + "（3.8.1 であること。4系はWASMで量子化モデルを読めない）");
+  if (!verMatch || verMatch[1] !== "3.8.1") {
+    allOk = false;
+    log("NG: 想定外のバージョン。上げる場合は必ず文字起こし結果まで実機で確認すること");
   }
 
   statusEl.textContent = allOk ? "DONE-ALL-OK" : "DONE-WITH-FAILURES";

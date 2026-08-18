@@ -9,7 +9,14 @@
 // 【重要】このファイルはESモジュール。<script type="module"> で読み込むこと。
 // script.js（通常のスクリプト）からは window.Transcriber 経由で呼ぶ。
 
-import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0";
+// 【バージョンを4系に上げないこと】4.0.1 / 4.1.0 / 4.2.0 では、同梱のONNX Runtimeが
+// WASMバックエンドで量子化モデル（q8/q4）を読めない：
+//   Can't create a session. qdq_actions.cc:137 TransposeDQWeightsForMatMulNBits
+//                           Missing required scale: model.decoder.embed_
+// WebGPUが使える環境では読めてしまうため気づきにくいが、WebGPU非対応の環境では
+// 「モデルを読み込めません」になる（2026-08-18に実機で発生・spec.txt 9-4節）。
+// 3.8.1はWebGPU・WASMのどちらでもq8を読める。上げる場合は必ずWASM経路を実機で確認すること。
+import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1";
 
 // ブラウザ内蔵のモデルキャッシュを使う（2回目以降のダウンロードを避ける）
 env.allowLocalModels = false;
@@ -44,24 +51,16 @@ function ensureModel(onProgress) {
     });
   };
 
-  // WebGPUが使えるなら使う。GitHub PagesではCOOP/COEPヘッダを付けられず
-  // WebAssemblyがシングルスレッドになるため（spec.txt 9-2節）、GPUが使えると差が大きい。
-  // 使えない環境ではWASMへ自動で切り替える
+  // 【device は wasm に固定する。webgpu へ変えないこと】
+  // 2026-08-18に全組み合わせを実機で確認した結果（spec.txt 9-4節）：
+  //   v4.2.0 + webgpu + q8 … 動く（5〜6秒）が、WebGPU非対応の環境では使えない
+  //   v4.2.0 + wasm  + q8 … モデルを読めない（ONNX Runtimeのエラー）
+  //   v4.2.0 + wasm  + fp32… 動くが61.9秒・約150MBと重い
+  //   v3.8.1 + webgpu + q8 … 読み込めるが【出力が壊れる】（無意味な文字列を返す）
+  //   v3.8.1 + wasm  + q8 … 8.6秒で正しく動く ← これを採用
+  // WASMに固定することで、WebGPUの有無にかかわらず全環境で同じ挙動になる。
+  // 速度はWebGPUに劣るが、環境ごとに違う不具合が出るより確実性を取る。
   modelPromise = (async () => {
-    const hasWebGPU = typeof navigator !== "undefined" && "gpu" in navigator;
-    if (hasWebGPU) {
-      try {
-        const pipe = await pipeline("automatic-speech-recognition", MODEL_ID, {
-          device: "webgpu",
-          dtype: "q8",
-          progress_callback: handleProgress,
-        });
-        modelDevice = "webgpu";
-        return pipe;
-      } catch (err) {
-        console.warn("WebGPUでの読み込みに失敗したためWASMへ切り替えます:", err);
-      }
-    }
     const pipe = await pipeline("automatic-speech-recognition", MODEL_ID, {
       device: "wasm",
       dtype: "q8",
@@ -71,8 +70,10 @@ function ensureModel(onProgress) {
     return pipe;
   })();
 
-  // 失敗したら次回やり直せるようにしておく（ネットワーク断からの復帰用）
-  modelPromise.catch(() => {
+  // 失敗したら次回やり直せるようにしておく（ネットワーク断からの復帰用）。
+  // 原因を追えるよう、握りつぶさずコンソールにも残す
+  modelPromise.catch((err) => {
+    console.error("モデルの読み込みに失敗しました:", err);
     modelPromise = null;
   });
 
