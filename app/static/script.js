@@ -12,6 +12,9 @@ const state = {
   // 言語切替で出し直せるよう、状態で変わる文言は「文字列」ではなく「キー」で持つ（UI_function.txt 3-9節）
   recordButtonKey: "btn.record",
   statusKey: "",
+  // ステータス文言に埋め込む値（モデル読み込みの進捗率など）。
+  // 言語を切り替えても出し直せるよう、文字列ではなく値のまま持つ
+  statusParams: null,
 };
 
 // アクセントごとのお手本の声（spec.txt 5-2節）
@@ -69,6 +72,8 @@ const I18N = {
     "btn.playMine": "▶ Your Recording",
     "status.checking": "Checking...",
     "status.checkFailed": "Check failed",
+    "status.loadingModel": "Loading the speech model (first time only, about 40 MB)... {pct}%",
+    "status.modelLoadFailed": "Could not load the speech model. Check your connection and try again.",
     "status.modelFailed": "Failed to play the model audio",
     "status.micUnavailable": "Microphone unavailable. Please check your browser's microphone permission.",
   },
@@ -98,6 +103,8 @@ const I18N = {
     "btn.playMine": "▶ あなたの録音",
     "status.checking": "判定中...",
     "status.checkFailed": "判定に失敗しました",
+    "status.loadingModel": "音声モデルを読み込み中（初回のみ・約40MB）... {pct}%",
+    "status.modelLoadFailed": "音声モデルを読み込めませんでした（通信状況を確認してもう一度お試しください）",
     "status.modelFailed": "お手本の再生に失敗しました",
     "status.micUnavailable": "マイクを使用できません（ブラウザのマイク許可を確認してください）",
   },
@@ -158,9 +165,11 @@ function getSelectedDifficulty() {
   return document.querySelector('input[name="difficulty"]:checked').value;
 }
 
-// 引数は文言そのものではなくI18Nのキー（言語を切り替えても出し直せるようにするため）。空文字で非表示
-function setStatus(key) {
+// 引数は文言そのものではなくI18Nのキー（言語を切り替えても出し直せるようにするため）。空文字で非表示。
+// paramsを渡すと文言中の {名前} を置き換える（進捗率のように数値が変わるもの用）
+function setStatus(key, params) {
   state.statusKey = key || "";
+  state.statusParams = params || null;
   renderStatus();
 }
 
@@ -170,8 +179,14 @@ function renderStatus() {
     el.statusIndicator.textContent = "";
     return;
   }
+  let text = t(state.statusKey);
+  if (state.statusParams) {
+    Object.keys(state.statusParams).forEach((name) => {
+      text = text.replace("{" + name + "}", state.statusParams[name]);
+    });
+  }
   el.statusIndicator.classList.remove("hidden");
-  el.statusIndicator.textContent = t(state.statusKey);
+  el.statusIndicator.textContent = text;
 }
 
 // 録音ボタンは状態（未録音／録音中／録音済み）で文言が変わるため、キーから毎回引き直す
@@ -362,25 +377,53 @@ function stopModelPlayback() {
   window.speechSynthesis.cancel();
 }
 
-// 録音後、Blobをサーバーへ送って文字起こし・判定してもらう
+// モデル読み込みの進捗をステータス行に出す。
+// 1%刻みで書き換えると描画が忙しいので、値が変わったときだけ更新する
+let lastShownPercent = -1;
+function showModelProgress(info) {
+  const pct = Math.min(100, Math.floor(info.progress || 0));
+  if (pct === lastShownPercent) return;
+  lastShownPercent = pct;
+  setStatus("status.loadingModel", { pct: pct });
+}
+
+// モデルの読み込みを先に始めておく（待つのは録音が終わってから）。
+// 録音している数秒のあいだにダウンロードが進むので、初回の待ち時間が短くなる
+function preloadModel() {
+  if (!window.Transcriber) return;
+  window.Transcriber.ensureModel(showModelProgress).catch(() => {
+    // ここでは何も表示しない。実際に文字起こしを試みたときに改めて知らせる
+  });
+}
+
+// 録音後、ブラウザ内のWhisperで文字起こしして判定する（spec.txt 9-2節）。
+// 音声は端末外に出ない。サーバーへは何も送らない
 async function transcribeAndShow(blob) {
-  setStatus("status.checking");
-  const form = new FormData();
-  form.append("audio", blob, "recording.webm");
-  // 出題文を録音と一緒に送る。サーバーが出題文を覚えないので、
-  // 同時に複数人が使っても他人の文と比較されることがない（spec.txt 5-6節）
-  form.append("target", el.targetSentence.textContent.trim());
+  if (!window.Transcriber || typeof buildDiff !== "function") {
+    setStatus("status.checkFailed");
+    setControlsEnabled(true);
+    el.btnRecord.disabled = false;
+    return;
+  }
+
+  const target = el.targetSentence.textContent.trim();
   try {
-    const res = await fetch("/api/transcribe", { method: "POST", body: form });
-    const data = await res.json();
-    if (data.diff) {
-      renderDiff(data.diff);
-      el.resultSection.classList.remove("hidden");
-      el.btnPlayMine.disabled = false;
-    } else {
-      setStatus("status.checkFailed");
-      return;
-    }
+    // モデルが未読み込みならここで待つ（進捗はステータス行に出る）
+    await window.Transcriber.ensureModel(showModelProgress);
+  } catch (err) {
+    setStatus("status.modelLoadFailed");
+    setControlsEnabled(true);
+    el.btnRecord.disabled = false;
+    return;
+  }
+
+  setStatus("status.checking");
+  try {
+    const transcript = await window.Transcriber.transcribe(blob);
+    const diff = buildDiff(target, transcript);
+    renderDiff(diff);
+    el.resultSection.classList.remove("hidden");
+    el.btnPlayMine.disabled = false;
   } catch (err) {
     setStatus("status.checkFailed");
     return;
@@ -426,6 +469,8 @@ async function startRecording() {
   }
 
   setControlsEnabled(false);
+  // 録音と並行してモデルを読み込ませる（初回の待ち時間を録音時間で相殺する）
+  preloadModel();
   state.mediaStream = stream;
   state.recordedChunks = [];
   const recorder = new MediaRecorder(stream);

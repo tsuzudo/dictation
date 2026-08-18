@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>ブラウザ内文字起こしの動作確認</title>
+<style>
+  body { font-family: -apple-system, sans-serif; margin: 24px; line-height: 1.6; }
+  pre { background: #f4f4f4; padding: 12px; white-space: pre-wrap; word-break: break-all; }
+  .ok { color: #147a3d; font-weight: bold; }
+  .ng { color: #c02626; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>ブラウザ内文字起こしの動作確認</h1>
+<p>
+  Transformers.js（Whisper tiny.en）とscoring.jsが、実際のブラウザで動くかを確認する。
+  音声は<code>say</code>コマンドで生成した固定のWAVを使う（マイク録音は自動化できないため、
+  ここでは音声フォーマット変換・モデル読み込み・文字起こし・判定までを通す）。
+</p>
+<p>
+  使い方：音声ファイルは<code>.gitignore</code>で除外しているため、初回は下のコマンドで作ってから
+  <code>python3 tests/serve.py</code> を起動し、このページを開く。
+</p>
+<pre>say -o tests/fixtures/case1.wav --data-format=LEI16@22050 "The quick brown fox jumps over the lazy dog."
+say -o tests/fixtures/case2.wav --data-format=LEI16@22050 "She sells seashells by the seashore."
+say -o tests/fixtures/case3.wav --data-format=LEI16@22050 "It costs twenty five dollars and weighs three kilograms."</pre>
+<p>状態: <span id="status">初期化中</span></p>
+<pre id="log"></pre>
+
+<script src="/app/static/scoring.js"></script>
+<script type="module" src="/app/static/transcriber.js"></script>
+<script type="module">
+const CASES = [
+  { file: "/tests/fixtures/case1.wav", expect: "The quick brown fox jumps over the lazy dog." },
+  { file: "/tests/fixtures/case2.wav", expect: "She sells seashells by the seashore." },
+  { file: "/tests/fixtures/case3.wav", expect: "It costs 25 dollars and weighs 3 kg." },
+];
+
+const logEl = document.getElementById("log");
+const statusEl = document.getElementById("status");
+function log(line) {
+  logEl.textContent += line + "\n";
+}
+
+async function main() {
+  // scoring.js（通常スクリプト）が読めているか
+  if (typeof buildDiff !== "function") {
+    statusEl.textContent = "NG: scoring.js が読み込めていません";
+    statusEl.className = "ng";
+    return;
+  }
+  if (!window.Transcriber) {
+    statusEl.textContent = "NG: transcriber.js が読み込めていません";
+    statusEl.className = "ng";
+    return;
+  }
+  log("scoring.js / transcriber.js の読み込み: OK");
+  log("モデル: " + window.Transcriber.MODEL_ID);
+
+  let lastPct = -1;
+  const onProgress = (info) => {
+    const pct = Math.floor(info.progress);
+    if (pct !== lastPct && pct % 20 === 0) {
+      lastPct = pct;
+      statusEl.textContent = "モデル読み込み中 " + pct + "%";
+    }
+  };
+
+  const t0 = performance.now();
+  try {
+    statusEl.textContent = "モデル読み込み中";
+    await window.Transcriber.ensureModel(onProgress);
+  } catch (err) {
+    statusEl.textContent = "NG: モデル読み込みに失敗";
+    statusEl.className = "ng";
+    log("モデル読み込みエラー: " + (err && err.message ? err.message : String(err)));
+    return;
+  }
+  const loadSec = ((performance.now() - t0) / 1000).toFixed(1);
+  log("モデル読み込み完了: " + loadSec + " 秒 / 実行デバイス=" + window.Transcriber.getDevice());
+
+  let allOk = true;
+  for (const c of CASES) {
+    log("");
+    log("--- " + c.file + " ---");
+    try {
+      const res = await fetch(c.file);
+      if (!res.ok) { throw new Error("音声が取得できません HTTP " + res.status); }
+      const blob = await res.blob();
+
+      const pcm = await window.Transcriber.blobToPcm(blob);
+      log("PCM変換: " + pcm.length + " サンプル（" +
+          (pcm.length / 16000).toFixed(1) + " 秒相当）");
+
+      const t1 = performance.now();
+      const text = await window.Transcriber.transcribe(blob);
+      const sec = ((performance.now() - t1) / 1000).toFixed(1);
+
+      log("出題文    : " + c.expect);
+      log("文字起こし: " + text);
+      log("所要      : " + sec + " 秒");
+
+      const diff = buildDiff(c.expect, text);
+      const wrong = diff.filter((d) => d.type !== "equal");
+      if (wrong.length === 0) {
+        log("判定: 完全一致 OK");
+      } else {
+        allOk = false;
+        log("判定: 不一致 " + wrong.length + " 件 -> " + JSON.stringify(wrong));
+      }
+    } catch (err) {
+      allOk = false;
+      log("エラー: " + (err && err.message ? err.message : String(err)));
+    }
+  }
+
+  statusEl.textContent = allOk ? "DONE-ALL-OK" : "DONE-WITH-FAILURES";
+  statusEl.className = allOk ? "ok" : "ng";
+}
+
+main();
+</script>
+</body>
+</html>
