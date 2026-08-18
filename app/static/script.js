@@ -405,8 +405,36 @@ function stopModelPlayback() {
 
 // モデル読み込みの進捗をステータス行に出す。
 // 1%刻みで書き換えると描画が忙しいので、値が変わったときだけ更新する
+// 2回目以降はモデルがブラウザにキャッシュされていて一瞬で読み終わるため、
+// 呼ばれた瞬間に表示すると「読み込み中」が出てすぐ消えるちらつきになる。
+// 少し待っても終わらないときだけ表示する（初回のダウンロードでは従来どおり進捗が出る）
+const PROGRESS_DELAY_MS = 400;
+let progressTimer = null;
+let progressVisible = false;
 let lastShownPercent = -1;
+
+function beginModelProgress() {
+  lastShownPercent = -1;
+  progressVisible = false;
+  clearTimeout(progressTimer);
+  progressTimer = setTimeout(() => {
+    progressVisible = true;
+  }, PROGRESS_DELAY_MS);
+}
+
+// 読み込みが終わったら進捗表示を片付ける。
+// これが無いと、録音中に読み込みが完了した場合に「100%」が出たまま残る
+function endModelProgress() {
+  clearTimeout(progressTimer);
+  progressVisible = false;
+  // 進捗以外のもの（エラーなど）が出ている場合は消さない
+  if (state.statusKey === "status.loadingModel") {
+    setStatus("");
+  }
+}
+
 function showModelProgress(info) {
+  if (!progressVisible) return;
   const pct = Math.min(100, Math.floor(info.progress || 0));
   if (pct === lastShownPercent) return;
   lastShownPercent = pct;
@@ -417,9 +445,14 @@ function showModelProgress(info) {
 // 録音している数秒のあいだにダウンロードが進むので、初回の待ち時間が短くなる
 function preloadModel() {
   if (!window.Transcriber) return;
-  window.Transcriber.ensureModel(showModelProgress).catch(() => {
-    // ここでは何も表示しない。実際に文字起こしを試みたときに改めて知らせる
-  });
+  beginModelProgress();
+  window.Transcriber.ensureModel(showModelProgress)
+    .then(endModelProgress)
+    .catch(() => {
+      // 失敗をここでは知らせない（実際に文字起こしを試みたときに改めて知らせる）。
+      // ただし進捗表示は片付ける
+      endModelProgress();
+    });
 }
 
 // 録音後、ブラウザ内のWhisperで文字起こしして判定する（spec.txt 9-2節）。
@@ -435,8 +468,11 @@ async function transcribeAndShow(blob) {
   const target = el.targetSentence.textContent.trim();
   try {
     // モデルが未読み込みならここで待つ（進捗はステータス行に出る）
+    beginModelProgress();
     await window.Transcriber.ensureModel(showModelProgress);
+    endModelProgress();
   } catch (err) {
+    endModelProgress();
     setStatus("status.modelLoadFailed");
     setControlsEnabled(true);
     el.btnRecord.disabled = false;

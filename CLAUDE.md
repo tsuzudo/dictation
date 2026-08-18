@@ -45,10 +45,17 @@
   「WebGPUが使える環境では正常に見える」ため、変更する場合は**WebGPUを無効にした状態で
   文字起こし結果まで**実機確認すること（`tests/browser_check.html`が両方を検査する）
 
-## Deployment（Google Cloud Run・戻り先として維持）
+## Deployment（Google Cloud Run・**2026-08-18に停止済み**）
 
-> 静的版が安定するまでの戻り先。**push しても自動更新されない**（`./deploy.sh` 実行時のみ）。
-> 静的版に無い機能はサーバー側Whisper（`/api/transcribe`）のみ。
+> **現在このサービスは止まっている（公開URLは403）。** 静的版がSafari実機で動作したため、
+> 課金リスクをゼロにする目的でIAMから`allUsers`を外した（spec.txt 9-5節）。削除ではないので、
+> 再開したいときは次のコマンドで戻せる：
+> ```
+> gcloud run services add-iam-policy-binding dictation --region us-central1 \
+>   --member="allUsers" --role="roles/run.invoker"
+> ```
+> `app.py`・`Dockerfile`・`deploy.sh`は当面残す（様子を見て問題なければ削除する方針）。
+> 以下は稼働していた当時の手順で、再開する場合の参考。
 
 
 一般公開はGoogle Cloud Runで行っている（決定の経緯はspec.txt 5-7節、実施記録は5-8節）。
