@@ -24,7 +24,28 @@
 - `run.sh`：起動スクリプト（`./run.sh` を実行するとサーバー起動＋ブラウザが開く）
 - 米・英・豪のアクセント切り替えに対応（お手本の声を切り替えるのみ。判定ロジックは共通）
 
-## Deployment（Google Cloud Run）
+## Deployment（GitHub Pages・現行の公開先）
+
+2026-08-18に、文字起こしをブラウザ内へ移して静的ホスティングへ移行した（spec.txt 9-2・9-3節）。
+
+- 公開URL：**https://tsuzudo.github.io/dictation/**
+- リポジトリ：`tsuzudo/dictation`（Pages利用のためパブリック）
+- `main` へ push すると `.github/workflows/pages.yml` が自動デプロイする（手作業なし）
+- 公開用の配置は `build_site.sh` が `app/` から作る。**`app/` が唯一の正**であり、公開用のコピーを別に持たない
+- **課金の心配が無いことが移行の目的**。無料枠に依存する構成そのものを避けたいという判断（spec.txt 9-2節）
+
+### 触るときの注意
+- **パスは必ず相対で書くこと。** Pagesはサイトを`/dictation/`配下に置くため、`/static/...`と
+  絶対で書くと404になる。相対にしておけばCloud Run版（`/`直下）とも共用できる
+- `sentences.json`は`app/static/`にある（ブラウザが`fetch`で取りに行くため）
+- 判定ロジックは`app/static/scoring.js`（`app.py`からの移植）。**両者を変更したら
+  `python3 tests/compare_scoring.py` で出力が一致することを必ず確認する**
+
+## Deployment（Google Cloud Run・戻り先として維持）
+
+> 静的版が安定するまでの戻り先。**push しても自動更新されない**（`./deploy.sh` 実行時のみ）。
+> 静的版に無い機能はサーバー側Whisper（`/api/transcribe`）のみ。
+
 
 一般公開はGoogle Cloud Runで行っている（決定の経緯はspec.txt 5-7節、実施記録は5-8節）。
 

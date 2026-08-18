@@ -39,7 +39,28 @@ pip install -r requirements.txt
 | `DICTATION_DEBUG` | （無効） | `1` で Flask のデバッグモードを有効化。**公開環境では絶対に有効にしないこと** |
 | `DICTATION_WHISPER_MODEL` | `base` | Whisper のモデルサイズ |
 
+## デプロイ（GitHub Pages・現行の公開先）
+
+公開URL：**https://tsuzudo.github.io/dictation/**
+
+`main` へ push すると GitHub Actions（`.github/workflows/pages.yml`）が自動でデプロイします。
+手作業は不要です。公開用の配置は `build_site.sh` が `app/` から組み立てます。
+
+```bash
+./build_site.sh        # 手元で公開用の配置を確認したいとき（_site/ を作る）
+python3 tests/serve.py 8765 <配信ルート>   # 静的配信の確認用サーバー
+```
+
+`app/` が唯一の正であり、公開用のファイルを別途持ちません（詳細は spec.txt 9-3節）。
+
+**パスは必ず相対で書くこと。** GitHub Pages はサイトを `/dictation/` 配下に置くため、
+`/static/script.js` のような絶対パスはアプリの外を指して 404 になります。
+
 ## デプロイ（Google Cloud Run）
+
+> 静的版（GitHub Pages）へ移行後も、戻り先として残しています。
+> push しても自動更新はされません。`./deploy.sh` を実行したときだけ反映されます。
+
 
 `Dockerfile` を使ってコンテナとして動かします。ローカルの `./run.sh` とは独立しています。
 
