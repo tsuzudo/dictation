@@ -5,7 +5,7 @@ GitHub Pagesと同じ「静的ファイルを配るだけ」の状態を手元�
 `python3 -m http.server` を使わないのは、この環境では既定値の os.getcwd() 評価で
 PermissionError になるため。配信ディレクトリを明示して回避している。
 
-実行:  python3 tests/serve.py [ポート番号]
+実行:  python3 tests/serve.py [ポート番号] [配信ルート]
 """
 
 import http.server
@@ -13,8 +13,11 @@ import socketserver
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
+# 配信ルート。省略時はリポジトリ直下。
+# GitHub Pagesは /dictation/ のようなサブパス配下に置かれるため、
+# その状況を手元で再現したいときは第2引数でルートを指定する
+ROOT = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else Path(__file__).resolve().parent.parent
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):

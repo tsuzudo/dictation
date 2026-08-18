@@ -74,6 +74,7 @@ const I18N = {
     "status.checkFailed": "Check failed",
     "status.loadingModel": "Loading the speech model (first time only, about 40 MB)... {pct}%",
     "status.modelLoadFailed": "Could not load the speech model. Check your connection and try again.",
+    "status.sentencesFailed": "Could not load the sentences. Please reload the page.",
     "status.modelFailed": "Failed to play the model audio",
     "status.micUnavailable": "Microphone unavailable. Please check your browser's microphone permission.",
   },
@@ -105,6 +106,7 @@ const I18N = {
     "status.checkFailed": "判定に失敗しました",
     "status.loadingModel": "音声モデルを読み込み中（初回のみ・約40MB）... {pct}%",
     "status.modelLoadFailed": "音声モデルを読み込めませんでした（通信状況を確認してもう一度お試しください）",
+    "status.sentencesFailed": "出題文を読み込めませんでした（ページを再読み込みしてください）",
     "status.modelFailed": "お手本の再生に失敗しました",
     "status.micUnavailable": "マイクを使用できません（ブラウザのマイク許可を確認してください）",
   },
@@ -254,20 +256,44 @@ function rememberSentence(sentence) {
   }
 }
 
-el.btnNextSentence.addEventListener("click", async () => {
-  const res = await fetch("/api/sentence/random", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      difficulty: getSelectedDifficulty(),
-      recent: loadRecentSentences(),
-    }),
-  });
-  const data = await res.json();
-  if (data.sentence) {
-    rememberSentence(data.sentence);
-    setSentence(data.sentence);
+// 出題文はブラウザ側で読み込んで抽選する（サーバーを持たないため・spec.txt 9-2節）。
+// 一度読んだら使い回す。パスは相対（GitHub Pagesのサブパス配下でも届くようにするため）
+let sentencesPromise = null;
+function loadSentences() {
+  if (!sentencesPromise) {
+    sentencesPromise = fetch("static/sentences.json").then((res) => {
+      if (!res.ok) throw new Error("sentences.json HTTP " + res.status);
+      return res.json();
+    });
+    // 失敗したら次回やり直せるようにしておく
+    sentencesPromise.catch(() => {
+      sentencesPromise = null;
+    });
   }
+  return sentencesPromise;
+}
+
+el.btnNextSentence.addEventListener("click", async () => {
+  let data;
+  try {
+    data = await loadSentences();
+  } catch (err) {
+    setStatus("status.sentencesFailed");
+    return;
+  }
+  const pool = data[getSelectedDifficulty()];
+  if (!pool || pool.length === 0) return;
+
+  // 直近に出した文を避ける。候補が尽きたら履歴を無視する
+  // （サーバー側 api_sentence_random と同じ考え方・spec.txt 5-6節）
+  const recent = loadRecentSentences();
+  let candidates = pool.filter((s) => recent.indexOf(s) === -1);
+  if (candidates.length === 0) {
+    candidates = pool;
+  }
+  const sentence = candidates[Math.floor(Math.random() * candidates.length)];
+  rememberSentence(sentence);
+  setSentence(sentence);
 });
 
 el.btnUseFreeText.addEventListener("click", () => {

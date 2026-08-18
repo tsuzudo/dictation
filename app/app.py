@@ -11,7 +11,8 @@ from faster_whisper import WhisperModel
 from flask import Flask, jsonify, request, render_template
 
 APP_DIR = Path(__file__).resolve().parent
-SENTENCES_PATH = APP_DIR / "sentences.json"
+# ブラウザからも同じ相対パス（static/sentences.json）で取りに行けるようstatic配下に置く（spec.txt 9-2節）
+SENTENCES_PATH = APP_DIR / "static" / "sentences.json"
 
 app = Flask(__name__)
 

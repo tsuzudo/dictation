@@ -1,0 +1,41 @@
+# GitHub Pagesへの公開（spec.txt 9-2節）
+# app/ の中身から公開用の配置を作ってデプロイする。mainへpushすると自動で走る。
+# 配置を作る処理は build_site.sh に集約し、手元の確認と同じ手順にしてある。
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # 手動でも実行できるようにしておく（コード変更なしで再デプロイしたいとき用）
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同時に複数のデプロイが走らないようにする
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 公開するファイルを集める
+        run: ./build_site.sh
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

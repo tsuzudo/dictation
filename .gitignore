@@ -16,3 +16,6 @@ __pycache__/
 
 # Claude Code のローカル設定（個人の許可ルール）
 .claude/settings.local.json
+
+# GitHub Pages用の生成物（build_site.shが作る。コミットしない）
+_site/
