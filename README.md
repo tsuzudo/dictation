@@ -88,6 +88,19 @@ gcloud run deploy dictation \
 - アクセスが無い間はインスタンスが停止するため、久しぶりの初回アクセスは
   モデル読み込みで十数秒かかります（コールドスタート）
 
+## ライセンス
+
+このリポジトリのコードは **MITライセンス**です（`LICENSE`）。自由に使用・改変・再配布できますが、
+著作権表示とライセンス文を残してください。**無保証**です（発音判定の正確さは保証しません）。
+
+利用している主なソフトウェアとモデル（いずれも寛容型ライセンスで、本リポジトリには同梱していません）：
+
+| | ライセンス | 備考 |
+|---|---|---|
+| [Transformers.js](https://github.com/huggingface/transformers.js) | Apache-2.0 | CDNから読み込み |
+| [Whisper tiny.en](https://huggingface.co/Xenova/whisper-tiny.en) | Apache-2.0 | 実行時に利用者の端末へダウンロード |
+| Flask / gunicorn / faster-whisper | BSD-3-Clause / MIT / MIT | Cloud Run版（現在は停止中）で使用 |
+
 ## ドキュメント
 
 - `spec.txt`：要件仕様書
