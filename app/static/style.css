@@ -210,11 +210,42 @@ button:disabled {
 
 /* 隠す指定は要素ごとに書く（このCSSには汎用の .hidden が無い） */
 #skit-list-view.hidden,
+#skit-role-view.hidden,
 #skit-practice-view.hidden,
 #btn-toggle-translation.hidden,
 #btn-next-line.hidden,
 .translation-box.hidden {
   display: none;
+}
+
+/* 「全台詞」か「役を選ぶ」かの選択（8-6節） */
+.skit-mode {
+  margin-bottom: 10px;
+}
+
+/* 役を選ぶ画面（8-6節） */
+.skit-role-question {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.skit-role-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.skit-role-choices label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.skit-role-buttons {
+  display: flex;
+  gap: 12px;
 }
 
 .skit-list {
@@ -411,5 +442,17 @@ button:disabled {
 
   .done-speaker {
     min-width: 4.5em;
+  }
+
+  /* 役を選ぶ画面も指で押しやすい大きさにする */
+  .skit-role-choices label {
+    padding: 6px 4px;
+    font-size: 16px;
+  }
+
+  .skit-role-buttons button {
+    flex: 1;
+    min-height: 48px;
+    font-size: 16px;
   }
 }

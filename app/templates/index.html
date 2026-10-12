@@ -52,7 +52,25 @@
          この中で「一覧」と「練習中」を切り替える（1画面完結の方針は変えない） -->
     <div class="tab-panel hidden" data-panel="skit">
       <div id="skit-list-view">
+        <div class="skit-mode">
+          <span class="label" data-i18n="skit.practiceLabel">Practice:</span>
+          <label><input type="radio" name="skit-mode" value="all" checked> <span data-i18n="skit.allLines">All lines</span></label>
+          <label><input type="radio" name="skit-mode" value="role"> <span data-i18n="skit.oneRole">One role</span></label>
+        </div>
         <div id="skit-list" class="skit-list"></div>
+      </div>
+
+      <!-- 役を選ぶ（「役を選ぶ」モードでスキットを選んだ直後に出す・8-6節）。
+           役が3人以上のスキットでも同じ作りでそのまま扱える -->
+      <div id="skit-role-view" class="hidden">
+        <p class="skit-role-question" data-i18n="skit.chooseRole">Which role do you want to practice?</p>
+        <div id="skit-role-choices" class="skit-role-choices"></div>
+        <div class="skit-role-buttons">
+          <button id="btn-start-skit" data-i18n="btn.startSkit">Start</button>
+          <!-- 役を選ぶ画面からも一覧へ戻れるようにする（設計書のワイヤーには無かったが、
+               戻る手段が無いと選び直せないため・2026-10-12 追加） -->
+          <button id="btn-role-back" data-i18n="btn.backToList">Back to list</button>
+        </div>
       </div>
 
       <div id="skit-practice-view" class="hidden">
@@ -83,6 +101,8 @@
     <button id="btn-play-model" disabled data-i18n="btn.playModel">▶ Model</button>
     <!-- 録音ボタンは状態で文言が変わるため data-i18n を付けない。JS側で state.recordButtonKey から出し直す -->
     <button id="btn-record" disabled>● Record</button>
+    <!-- スキットの練習中だけ出す。自分の役では判定のあと、相手役では最初から出す（8-7・8-8節） -->
+    <button id="btn-next-line" class="hidden" data-i18n="btn.nextLine">Next Line</button>
   </section>
 
   <div id="status-indicator" class="status hidden"></div>
@@ -94,8 +114,6 @@
 
     <div class="result-controls">
       <button id="btn-play-mine" disabled data-i18n="btn.playMine">▶ Your Recording</button>
-      <!-- スキットの練習中だけ出す（8-8節） -->
-      <button id="btn-next-line" class="hidden" data-i18n="btn.nextLine">Next Line</button>
     </div>
   </section>
 </div>
