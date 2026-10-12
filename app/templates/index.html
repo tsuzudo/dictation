@@ -31,6 +31,7 @@
     <div class="tab-buttons">
       <button class="tab-button active" data-tab="random" data-i18n="tab.random">Random</button>
       <button class="tab-button" data-tab="free" data-i18n="tab.free">Free Input</button>
+      <button class="tab-button" data-tab="skit" data-i18n="tab.skit">Skit</button>
     </div>
 
     <div class="tab-panel" data-panel="random">
@@ -46,11 +47,36 @@
       <textarea id="free-input" rows="3" data-i18n-placeholder="free.placeholder" placeholder="Enter an English sentence to practice"></textarea>
       <button id="btn-use-free-text" data-i18n="btn.useFreeText">Use This Sentence</button>
     </div>
+
+    <!-- スキット（隣のEnglish_conversationの英会話集を出題文にする・UI_function.txt 8節）。
+         この中で「一覧」と「練習中」を切り替える（1画面完結の方針は変えない） -->
+    <div class="tab-panel hidden" data-panel="skit">
+      <div id="skit-list-view">
+        <div id="skit-list" class="skit-list"></div>
+      </div>
+
+      <div id="skit-practice-view" class="hidden">
+        <div class="skit-practice-header">
+          <span id="skit-title" class="skit-title"></span>
+          <span id="skit-progress" class="skit-progress"></span>
+          <button id="btn-back-to-list" data-i18n="btn.backToList">Back to list</button>
+        </div>
+        <!-- 済んだ台詞。会話の流れの中で練習する目的なので、前の台詞を残す（8-3節） -->
+        <ol id="skit-done-lines" class="skit-done-lines"></ol>
+      </div>
+    </div>
   </section>
 
   <section class="sentence-display">
-    <div class="label" data-i18n="sentence.label">Sentence:</div>
+    <div class="label">
+      <span data-i18n="sentence.label">Sentence:</span>
+      <!-- スキットのときだけ、誰の台詞かを出す（8-3節） -->
+      <span id="sentence-speaker" class="sentence-speaker"></span>
+    </div>
     <div id="target-sentence" class="sentence-box"></div>
+    <!-- 訳・解説は既定で閉じる。次の台詞に進むと閉じた状態に戻す（8-5節） -->
+    <button id="btn-toggle-translation" class="link-button hidden" data-i18n="btn.showTranslation">▼ Show translation</button>
+    <div id="translation-box" class="translation-box hidden"></div>
   </section>
 
   <section class="controls">
@@ -68,6 +94,8 @@
 
     <div class="result-controls">
       <button id="btn-play-mine" disabled data-i18n="btn.playMine">▶ Your Recording</button>
+      <!-- スキットの練習中だけ出す（8-8節） -->
+      <button id="btn-next-line" class="hidden" data-i18n="btn.nextLine">Next Line</button>
     </div>
   </section>
 </div>

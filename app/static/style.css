@@ -206,6 +206,134 @@ button:disabled {
   color: #c7c7cc;
 }
 
+/* ===== スキット発音練習（UI_function.txt 8節） ===== */
+
+/* 隠す指定は要素ごとに書く（このCSSには汎用の .hidden が無い） */
+#skit-list-view.hidden,
+#skit-practice-view.hidden,
+#btn-toggle-translation.hidden,
+#btn-next-line.hidden,
+.translation-box.hidden {
+  display: none;
+}
+
+.skit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* 14本あるので、画面を押し下げないよう高さを区切ってスクロールさせる */
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.skit-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+}
+
+.skit-row-title {
+  font-size: 15px;
+  color: #1d1d1f;
+}
+
+.skit-row-meta {
+  font-size: 12px;
+  color: #86868b;
+}
+
+.skit-practice-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.skit-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.skit-progress {
+  font-size: 13px;
+  color: #86868b;
+  margin-left: auto;   /* 「一覧へ」を右端へ寄せる */
+}
+
+/* 済んだ台詞は薄字で上に残す。会話の流れの中で練習する目的のため（8-3節） */
+.skit-done-lines {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  max-height: 140px;
+  overflow-y: auto;
+  font-size: 14px;
+  color: #86868b;
+}
+
+.skit-done-lines li {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.done-speaker {
+  flex: 0 0 auto;
+  min-width: 5.5em;
+  color: #c7c7cc;
+}
+
+.done-text {
+  overflow-wrap: anywhere;
+}
+
+/* 誰の台詞かを出題文の見出しに添える */
+.sentence-speaker {
+  color: #007aff;
+  font-weight: 600;
+}
+
+/* 訳・解説の開閉（8-5節）。枠のないボタンにして出題文の邪魔をしない */
+.link-button {
+  padding: 4px 0;
+  border: none;
+  background: none;
+  color: #007aff;
+  font-size: 13px;
+}
+
+.link-button:hover:not(:disabled) {
+  background: none;
+  text-decoration: underline;
+}
+
+.translation-box {
+  margin-top: 4px;
+  padding: 10px 12px;
+  background: #f5f5f7;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.translation-box p {
+  margin: 0;
+}
+
+.translation-ja {
+  color: #1d1d1f;
+}
+
+.translation-note {
+  color: #86868b;
+  font-size: 13px;
+}
+
+.translation-ja + .translation-note {
+  margin-top: 6px;
+}
+
 /* スマホ縦長レイアウト（UI_function.txt 2-1節）。
    幅600px以下でボタンを縦積み・タップしやすいサイズに切り替える。PC表示は上のまま。 */
 @media (max-width: 600px) {
@@ -261,5 +389,27 @@ button:disabled {
 
   .diff-row {
     font-size: 18px;
+  }
+
+  /* スキットの一覧は指でタップしやすい高さにする */
+  .skit-row {
+    min-height: 48px;
+    justify-content: center;
+  }
+
+  .skit-row-title {
+    font-size: 16px;
+  }
+
+  #btn-back-to-list {
+    min-height: 40px;
+  }
+
+  .skit-done-lines {
+    font-size: 13px;
+  }
+
+  .done-speaker {
+    min-width: 4.5em;
   }
 }

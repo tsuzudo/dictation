@@ -15,7 +15,17 @@ const state = {
   // ステータス文言に埋め込む値（モデル読み込みの進捗率など）。
   // 言語を切り替えても出し直せるよう、文字列ではなく値のまま持つ
   statusParams: null,
+  // スキット練習（spec.txt 第10章）。一覧にいるときは skit が null
+  skit: null,
+  skitLineIndex: 0,
 };
+
+// 隣の English_conversation/skit が公開している会話データ（spec.txt 10-1節）。
+// **ここだけは絶対URLで書く。** 別サイトのデータなので相対では指せない
+// （それ以外のパスは従来どおり相対のままにすること・9-3節）。
+// 同じ tsuzudo.github.io なので同一オリジンで、かつ GitHub Pages は
+// access-control-allow-origin: * を返すため、手元のローカル配信からも読める。
+const SKITS_URL = "https://tsuzudo.github.io/Aussie_English_conversation/skits.json";
 
 // アクセントごとのお手本の声（spec.txt 5-2節）
 // name は say コマンド時代と同じ声。見つからなければ lang で探し、それも無ければブラウザ既定に任せる
@@ -40,6 +50,18 @@ const el = {
   diffSaid: document.getElementById("diff-said"),
   btnPlayMine: document.getElementById("btn-play-mine"),
   langButtons: document.querySelectorAll(".lang-button"),
+  // スキット（UI_function.txt 8節）
+  skitListView: document.getElementById("skit-list-view"),
+  skitList: document.getElementById("skit-list"),
+  skitPracticeView: document.getElementById("skit-practice-view"),
+  skitTitle: document.getElementById("skit-title"),
+  skitProgress: document.getElementById("skit-progress"),
+  skitDoneLines: document.getElementById("skit-done-lines"),
+  btnBackToList: document.getElementById("btn-back-to-list"),
+  btnNextLine: document.getElementById("btn-next-line"),
+  btnToggleTranslation: document.getElementById("btn-toggle-translation"),
+  translationBox: document.getElementById("translation-box"),
+  sentenceSpeaker: document.getElementById("sentence-speaker"),
 };
 
 // ===== 日英ローカライズ（spec.txt 5-9節・UI_function.txt 3-9節） =====
@@ -77,6 +99,15 @@ const I18N = {
     "status.sentencesFailed": "Could not load the sentences. Please reload the page.",
     "status.modelFailed": "Failed to play the model audio",
     "status.micUnavailable": "Microphone unavailable. Please check your browser's microphone permission.",
+    "tab.skit": "Skit",
+    "btn.backToList": "Back to list",
+    "btn.nextLine": "Next Line",
+    "btn.showTranslation": "▼ Show translation",
+    "btn.hideTranslation": "▲ Hide translation",
+    "skit.lineCount": "{n} lines",
+    "skit.done": "Finished. Well done!",
+    "status.skitLoading": "Loading skits...",
+    "status.skitFailed": "Could not load the skits. Please try again later.",
   },
   ja: {
     "app.title": "Dictation - 発音チェック",
@@ -109,6 +140,15 @@ const I18N = {
     "status.sentencesFailed": "出題文を読み込めませんでした（ページを再読み込みしてください）",
     "status.modelFailed": "お手本の再生に失敗しました",
     "status.micUnavailable": "マイクを使用できません（ブラウザのマイク許可を確認してください）",
+    "tab.skit": "スキット",
+    "btn.backToList": "一覧へ",
+    "btn.nextLine": "次の台詞へ",
+    "btn.showTranslation": "▼ 訳・解説を見る",
+    "btn.hideTranslation": "▲ 訳・解説を隠す",
+    "skit.lineCount": "{n}行",
+    "skit.done": "完了。お疲れさまでした",
+    "status.skitLoading": "スキットを読み込み中...",
+    "status.skitFailed": "スキットを読み込めませんでした（しばらくしてからお試しください）",
   },
 };
 
@@ -151,6 +191,7 @@ function applyLanguage(lang) {
   // 状態で文言が変わる箇所は、今の状態のまま表示だけ出し直す
   updateRecordButton();
   renderStatus();
+  renderSkitUI();
 
   el.langButtons.forEach((b) => b.classList.toggle("active", b.dataset.lang === currentLang));
 }
@@ -208,6 +249,9 @@ function setSentence(sentence) {
   updateRecordButton();
   el.btnRecord.classList.remove("recording");
   state.isRecording = false;
+  // スキットの付加表示（話者名・訳の開閉・次の台詞へ）を初期状態に戻す。
+  // スキット以外の出題でも、前の練習の名残を消すために毎回通す
+  resetSkitLineExtras();
 }
 
 function setControlsEnabled(enabled) {
@@ -217,6 +261,11 @@ function setControlsEnabled(enabled) {
   el.btnNextSentence.disabled = !enabled;
   el.btnUseFreeText.disabled = !enabled;
   el.btnPlayModel.disabled = !enabled || !state.hasSentence;
+  // スキットの操作（UI_function.txt 8節）。録音・判定の最中は触らせない
+  el.btnBackToList.disabled = !enabled;
+  el.btnNextLine.disabled = !enabled;
+  el.btnToggleTranslation.disabled = !enabled;
+  el.skitList.querySelectorAll(".skit-row").forEach((r) => (r.disabled = !enabled));
 }
 
 el.tabButtons.forEach((button) => {
@@ -227,6 +276,21 @@ el.tabButtons.forEach((button) => {
     el.tabPanels.forEach((panel) => {
       panel.classList.toggle("hidden", panel.dataset.panel !== target);
     });
+
+    if (target === "skit") {
+      // 練習中にスキットタブへ戻ってきた場合は、そのまま続ける
+      if (!state.skit) {
+        // 一覧を出すときは、他のタブで出した出題文を片付ける（2026-10-12 決定）。
+        // 残すと一覧の下に関係のない英文が並んで紛らわしいため
+        clearSentence();
+        showSkitList();
+      }
+    } else if (state.skit) {
+      // スキットから離れたら練習を終えて一覧に戻す。
+      // 残したままにすると、他のタブで出題文を入れ替えたあとスキットへ戻ったとき
+      // 「3 / 8」の表示と出題文が食い違う（進捗は覚えない方針なので捨ててよい）
+      leaveSkit();
+    }
   });
 });
 
@@ -486,6 +550,8 @@ async function transcribeAndShow(blob) {
     renderDiff(diff);
     el.resultSection.classList.remove("hidden");
     el.btnPlayMine.disabled = false;
+    // スキットの練習中だけ、結果の下に「次の台詞へ」を出す（8-8節）
+    if (state.skit) el.btnNextLine.classList.remove("hidden");
   } catch (err) {
     setStatus("status.checkFailed");
     return;
@@ -624,6 +690,256 @@ function renderDiff(diff) {
     el.diffTarget.appendChild(document.createElement("wbr"));
     el.diffSaid.appendChild(document.createElement("wbr"));
   });
+}
+
+// ===== スキット発音練習（spec.txt 第10章・UI_function.txt 8節） =====
+// 隣の English_conversation/skit の英会話を、上から順に音読の練習に使う。
+// 判定ロジックには手を入れていない（出題文の出どころが増えるだけ・10-6節）。
+
+// 文言に {名前} を埋めてその場で文字列を返す。setStatus（キーで持ち回す方式）とは
+// 用途が違い、データから作る表示（一覧の行数など）で使う
+function tf(key, params) {
+  let text = t(key);
+  Object.keys(params || {}).forEach((name) => {
+    text = text.replace("{" + name + "}", params[name]);
+  });
+  return text;
+}
+
+// 一覧ぶんの会話データ。一度読んだら使い回す（sentences.json と同じ考え方）
+let skitData = null;
+let skitsPromise = null;
+
+function loadSkits() {
+  if (!skitsPromise) {
+    skitsPromise = fetch(SKITS_URL).then((res) => {
+      if (!res.ok) throw new Error("skits.json HTTP " + res.status);
+      return res.json();
+    });
+    // 失敗したら次回やり直せるようにしておく
+    skitsPromise.catch(() => {
+      skitsPromise = null;
+    });
+  }
+  return skitsPromise;
+}
+
+// 話者IDから画面に出す名前を引く。英語UIは label_en、日本語UIは role_ja（8-6節）
+function speakerLabel(skit, speakerId) {
+  const sp = (skit.speakers || []).find((x) => x.id === speakerId);
+  if (!sp) return speakerId;
+  const name = currentLang === "ja" ? sp.role_ja : sp.label_en;
+  return name || sp.label_en || sp.id;
+}
+
+// 話者名は日本語UIだけ全角かっこにする（英語UIで「（Waiter）」になるのを防ぐ）
+function speakerTag(skit, speakerId) {
+  const label = speakerLabel(skit, speakerId);
+  return currentLang === "ja" ? "（" + label + "）" : "(" + label + ")";
+}
+
+// --- 一覧 ---
+
+function renderSkitListRows() {
+  el.skitList.innerHTML = "";
+  if (!skitData || !Array.isArray(skitData.skits)) return;
+
+  skitData.skits.forEach((skit) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "skit-row";
+
+    const title = document.createElement("span");
+    title.className = "skit-row-title";
+    // タイトルは英語UIでも日本語のまま。データに英語タイトルが無いため（10-7節）
+    title.textContent = skit.title;
+
+    const meta = document.createElement("span");
+    meta.className = "skit-row-meta";
+    const who = (skit.speakers || []).map((sp) => (currentLang === "ja" ? sp.role_ja : sp.label_en));
+    meta.textContent = who.join(" / ") + " ・ " + tf("skit.lineCount", { n: skit.lines.length });
+
+    row.appendChild(title);
+    row.appendChild(meta);
+    row.addEventListener("click", () => startSkit(skit.slug));
+    el.skitList.appendChild(row);
+  });
+}
+
+async function showSkitList() {
+  // 読み込めなかった場合もスキットタブの中だけで知らせる。
+  // 他のタブ（ランダム・自由入力）は sentences.json を使うので影響を受けない（10-8節）
+  if (!skitData) setStatus("status.skitLoading");
+  try {
+    skitData = await loadSkits();
+  } catch (err) {
+    setStatus("status.skitFailed");
+    return;
+  }
+  if (state.statusKey === "status.skitLoading") setStatus("");
+  renderSkitListRows();
+}
+
+// --- 練習 ---
+
+function startSkit(slug) {
+  const skit = (skitData && skitData.skits || []).find((x) => x.slug === slug);
+  if (!skit || !skit.lines.length) return;
+
+  state.skit = skit;
+  state.skitLineIndex = 0;   // 進捗は覚えない。毎回1行目から（10-3節）
+  el.skitListView.classList.add("hidden");
+  el.skitPracticeView.classList.remove("hidden");
+  el.skitTitle.textContent = skit.title;
+  setStatus("");
+  renderSkitDoneLines();
+  showSkitLine();
+}
+
+function showSkitLine() {
+  const skit = state.skit;
+  if (!skit) return;
+  const line = skit.lines[state.skitLineIndex];
+  if (!line) {
+    finishSkit();
+    return;
+  }
+
+  el.skitProgress.textContent = (state.skitLineIndex + 1) + " / " + skit.lines.length;
+  // setSentence が付加表示（話者名・訳・次の台詞へ）を片付けるので、その後に出す
+  setSentence(line.en);
+  el.sentenceSpeaker.textContent = speakerTag(skit, line.speaker);
+  // 訳が無い会話ではボタンそのものを出さない（8-5節）
+  if (line.ja || line.note) el.btnToggleTranslation.classList.remove("hidden");
+}
+
+// 済んだ台詞を上に残す。会話の流れの中で練習する目的なので、
+// 単文の出題と違って前の台詞が見えていることに意味がある（8-3節）
+function renderSkitDoneLines() {
+  el.skitDoneLines.innerHTML = "";
+  const skit = state.skit;
+  if (!skit) return;
+
+  skit.lines.slice(0, state.skitLineIndex).forEach((line) => {
+    const li = document.createElement("li");
+    const who = document.createElement("span");
+    who.className = "done-speaker";
+    who.textContent = speakerLabel(skit, line.speaker);
+    const text = document.createElement("span");
+    text.className = "done-text";
+    text.textContent = line.en;
+    li.appendChild(who);
+    li.appendChild(text);
+    el.skitDoneLines.appendChild(li);
+  });
+}
+
+function nextSkitLine() {
+  if (!state.skit) return;
+  state.skitLineIndex += 1;
+  if (state.skitLineIndex >= state.skit.lines.length) {
+    finishSkit();
+    return;
+  }
+  renderSkitDoneLines();
+  showSkitLine();
+}
+
+function finishSkit() {
+  leaveSkit();
+  setStatus("skit.done");
+}
+
+// 出題文を片付けて、お手本・録音も止める。
+// スキットの一覧を出すときに使う（出題文の欄はタブ共通なので、
+// 片付けないと一覧の下に前のタブの英文が残って紛らわしい）
+function clearSentence() {
+  stopModelPlayback();
+  el.targetSentence.textContent = "";
+  state.hasSentence = false;
+  el.btnPlayModel.disabled = true;
+  el.btnRecord.disabled = true;
+  el.resultSection.classList.add("hidden");
+  resetSkitLineExtras();
+}
+
+// 一覧へ戻る。出題文も片付ける（スキットから抜けたら録音もお手本も意味がない）
+function leaveSkit() {
+  state.skit = null;
+  state.skitLineIndex = 0;
+  el.skitPracticeView.classList.add("hidden");
+  el.skitListView.classList.remove("hidden");
+  // 練習中に言語を切り替えた場合、一覧は切り替え前の言語のまま残っている
+  // （renderSkitUI は練習中だと練習画面しか描き直さないため）。ここで描き直す
+  renderSkitListRows();
+  el.skitDoneLines.innerHTML = "";
+  el.skitProgress.textContent = "";
+  el.skitTitle.textContent = "";
+
+  clearSentence();
+  setStatus("");
+}
+
+// スキット用の付加表示を初期状態に戻す。setSentence から毎回呼ぶので、
+// 次の台詞では訳が閉じた状態から始まる（開いたままだと訳を先に読んでしまう・8-5節）
+function resetSkitLineExtras() {
+  el.sentenceSpeaker.textContent = "";
+  el.btnToggleTranslation.classList.add("hidden");
+  setTranslationButton(false);
+  el.translationBox.classList.add("hidden");
+  el.translationBox.innerHTML = "";
+  el.btnNextLine.classList.add("hidden");
+}
+
+// data-i18n も書き換える。そうしないと言語を切り替えたときに
+// 開いているのに「訳を見る」へ戻ってしまう
+function setTranslationButton(open) {
+  const key = open ? "btn.hideTranslation" : "btn.showTranslation";
+  el.btnToggleTranslation.dataset.i18n = key;
+  el.btnToggleTranslation.textContent = t(key);
+}
+
+el.btnToggleTranslation.addEventListener("click", () => {
+  const closed = el.translationBox.classList.contains("hidden");
+  if (!closed) {
+    el.translationBox.classList.add("hidden");
+    setTranslationButton(false);
+    return;
+  }
+  const line = state.skit && state.skit.lines[state.skitLineIndex];
+  if (!line) return;
+
+  el.translationBox.innerHTML = "";
+  if (line.ja) {
+    const ja = document.createElement("p");
+    ja.className = "translation-ja";
+    ja.textContent = line.ja;
+    el.translationBox.appendChild(ja);
+  }
+  if (line.note) {
+    const note = document.createElement("p");
+    note.className = "translation-note";
+    note.textContent = line.note;
+    el.translationBox.appendChild(note);
+  }
+  el.translationBox.classList.remove("hidden");
+  setTranslationButton(true);
+});
+
+el.btnNextLine.addEventListener("click", nextSkitLine);
+el.btnBackToList.addEventListener("click", leaveSkit);
+
+// 言語を切り替えたとき、データから作っている表示を描き直す
+// （data-i18n の一括差し替えでは直せないため）
+function renderSkitUI() {
+  if (!skitData) return;
+  if (state.skit) {
+    const line = state.skit.lines[state.skitLineIndex];
+    if (line) el.sentenceSpeaker.textContent = speakerTag(state.skit, line.speaker);
+    renderSkitDoneLines();
+  } else {
+    renderSkitListRows();
+  }
 }
 
 // 起動時に、前回選んだ言語（無ければ既定の英語）でUI全体を描画する
