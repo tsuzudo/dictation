@@ -68,6 +68,9 @@ const el = {
   skitRoleChoices: document.getElementById("skit-role-choices"),
   btnStartSkit: document.getElementById("btn-start-skit"),
   btnRoleBack: document.getElementById("btn-role-back"),
+  voiceSelect: document.getElementById("voice-select"),
+  voiceA: document.getElementById("voice-a"),
+  voiceB: document.getElementById("voice-b"),
 };
 
 // ===== 日英ローカライズ（spec.txt 5-9節・UI_function.txt 3-9節） =====
@@ -120,6 +123,9 @@ const I18N = {
     "skit.chooseRole": "Which role do you want to practice?",
     "btn.startSkit": "Start",
     "status.skitPlaying": "Playing...",
+    "voice.labelA": "Voice A:",
+    "voice.labelB": "Voice B:",
+    "voice.none": "(no voice for this accent on this device)",
   },
   ja: {
     "app.title": "Dictation - 発音チェック",
@@ -167,6 +173,9 @@ const I18N = {
     "skit.chooseRole": "どちらの役で練習しますか？",
     "btn.startSkit": "練習を始める",
     "status.skitPlaying": "再生中...",
+    "voice.labelA": "話者Aの声：",
+    "voice.labelB": "話者Bの声：",
+    "voice.none": "（この端末にはこのアクセントの声がありません）",
   },
 };
 
@@ -210,6 +219,8 @@ function applyLanguage(lang) {
   updateRecordButton();
   renderStatus();
   renderSkitUI();
+  // 「（この端末には…声がありません）」は data-i18n では直せないので作り直す
+  if (el.voiceA.disabled) renderVoiceOptions();
 
   el.langButtons.forEach((b) => b.classList.toggle("active", b.dataset.lang === currentLang));
 }
@@ -298,6 +309,10 @@ el.tabButtons.forEach((button) => {
     el.tabPanels.forEach((panel) => {
       panel.classList.toggle("hidden", panel.dataset.panel !== target);
     });
+
+    // 声の選択はスキットの練習にしか効かないので、他のタブでは出さない
+    // （効かない設定欄を画面に残さないため・spec.txt 10-4節）
+    el.voiceSelect.classList.toggle("hidden", target !== "skit");
 
     if (target === "skit") {
       // 練習中にスキットタブへ戻ってきた場合は、そのまま続ける
@@ -441,19 +456,153 @@ function ensureVoicesLoaded() {
 // 声の読み込みを先行させておく（押した時にはすでに揃っている状態にする）
 ensureVoicesLoaded();
 
-// getVoices() は読み込み直後に空を返すことがあるため、押下のたびに取得し直す
-function pickVoice(accent) {
+// getVoices() は読み込み直後に空を返すことがあるため、押下のたびに取得し直す。
+// preferredName … スキットで話者ごとに選ばれた声の名前（10-4節）。
+// 無い場合は従来どおり ACCENT_VOICES の名前 → 言語 → ブラウザ既定の順に探す
+function pickVoice(accent, preferredName) {
   const target = ACCENT_VOICES[accent] || ACCENT_VOICES.us;
   const voices = window.speechSynthesis.getVoices();
   const sameLang = (v) => v.lang.replace("_", "-") === target.lang;
-  const voice = voices.find((v) => v.name === target.name && sameLang(v)) || voices.find(sameLang) || null;
+  const chosen = preferredName
+    ? voices.find((v) => v.name === preferredName && sameLang(v))
+    : null;
+  const voice = chosen
+    || voices.find((v) => v.name === target.name && sameLang(v))
+    || voices.find(sameLang)
+    || null;
   return { voice, lang: target.lang };
+}
+
+// ===== 話者ごとのお手本の声（spec.txt 10-4節・UI_function.txt 8-4節） =====
+// アクセントで言語を絞り、その中の声を話者A・Bに割り当てる。
+// 利用できる声は端末ごとに違うので、固定の一覧は持たず getVoices() から作る。
+
+const VOICE_KEY = "dictation.voices";
+
+function loadSavedVoices() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(VOICE_KEY));
+    return saved && typeof saved === "object" ? saved : {};
+  } catch (err) {
+    // プライベートブラウズ等で読めない場合は既定の声で始める
+    return {};
+  }
+}
+
+function saveVoiceChoice() {
+  const all = loadSavedVoices();
+  all[getSelectedAccent()] = { a: el.voiceA.value, b: el.voiceB.value };
+  try {
+    localStorage.setItem(VOICE_KEY, JSON.stringify(all));
+  } catch (err) {
+    // 保存できなくても選択自体は効く（次回は既定に戻る）
+  }
+}
+
+function accentVoices(accent) {
+  const target = ACCENT_VOICES[accent] || ACCENT_VOICES.us;
+  return window.speechSynthesis.getVoices()
+    .filter((v) => v.lang.replace("_", "-") === target.lang);
+}
+
+// 括弧書きを落とした名前。"Karen (Premium)" と "Karen" は同じ人の声なので、
+// 話者A・Bの既定を決めるときは同じものとして扱う（並べても聞き分けられないため）
+function baseVoiceName(name) {
+  return name.replace(/\s*\(.*\)\s*$/, "").trim();
+}
+
+// 既定は従来と同じ声（Samantha/Daniel/Karen）から始める。
+// 話者Bはそれと別人の声にしておく（会話として聞き分けられるように）
+function defaultVoiceNames(accent, voices) {
+  const target = ACCENT_VOICES[accent] || ACCENT_VOICES.us;
+  const first = voices.find((v) => v.name === target.name) || voices[0] || null;
+  if (!first) return { a: "", b: "" };
+  const second = voices.find((v) => baseVoiceName(v.name) !== baseVoiceName(first.name))
+    || voices.find((v) => v !== first)
+    || first;
+  return { a: first.name, b: second.name };
+}
+
+function renderVoiceOptions() {
+  const accent = getSelectedAccent();
+  const voices = accentVoices(accent);
+  const saved = loadSavedVoices()[accent] || {};
+  const defaults = defaultVoiceNames(accent, voices);
+
+  [["a", el.voiceA], ["b", el.voiceB]].forEach((pair) => {
+    const slot = pair[0];
+    const select = pair[1];
+    select.innerHTML = "";
+
+    if (voices.length === 0) {
+      // その言語の声が無い端末。読み上げ自体はブラウザ既定の声で行われる
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = t("voice.none");
+      select.appendChild(option);
+      select.disabled = true;
+      return;
+    }
+
+    voices.forEach((v) => {
+      const option = document.createElement("option");
+      option.value = v.name;
+      option.textContent = v.name + " (" + v.lang.replace("_", "-") + ")";
+      select.appendChild(option);
+    });
+    select.disabled = false;
+    // **記憶していた声が端末に無ければ既定へ戻す**（端末を変えると声の名前が存在しない）
+    const want = saved[slot];
+    select.value = voices.some((v) => v.name === want) ? want : defaults[slot];
+  });
+}
+
+// 話者IDから、その話者に割り当てられた声の名前を引く。
+// 選択欄は2つしかないので、3人目以降の話者は既定の声で読む
+function speakerVoiceName(skit, speakerId) {
+  const index = (skit.speakers || []).findIndex((x) => x.id === speakerId);
+  if (index === 0) return el.voiceA.value;
+  if (index === 1) return el.voiceB.value;
+  return "";
+}
+
+el.voiceA.addEventListener("change", saveVoiceChoice);
+el.voiceB.addEventListener("change", saveVoiceChoice);
+
+// アクセントを変えると、並ぶ声も入れ替わる（そのアクセントで前に選んだ声に戻る）
+document.querySelectorAll('input[name="accent"]').forEach((radio) => {
+  radio.addEventListener("change", renderVoiceOptions);
+});
+
+// 声が出揃うのを待ってから中身を作る。待たずに作ると目的の声がまだ無い
+// （2026-07-20 の障害と同じ理由・spec.txt 5-2節）
+ensureVoicesLoaded().then(renderVoiceOptions);
+
+// ===== 読み替え（spec.txt 10-5節） =====
+// skits.json の pronunciation_overrides を使い、**読み上げに渡す文字列だけ**を
+// 差し替える。画面に出す英文と、発音判定の正解文は元のまま。
+
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function applyPronunciations(text) {
+  const rules = (skitData && skitData.pronunciation_overrides) || [];
+  let out = text;
+  rules.forEach((w) => {
+    if (!w || !w.from || !w.to) return;
+    // 単語の切れ目でのみ一致させ、大文字小文字は区別しない（skit側と同じ考え方）。
+    // ただし \b はアポストロフィも切れ目とみなすので、短い語を表に足すときは注意
+    out = out.replace(new RegExp("\\b" + escapeRegExp(w.from) + "\\b", "gi"), w.to);
+  });
+  return out;
 }
 
 // お手本の読み上げ。お手本ボタンからも、スキットの相手役の自動再生（8-7節）からも使う。
 // options.onEnd … 読み終わったときに呼ぶ（中断されたときは呼ばない）
 // options.onError … 鳴らせなかったときに呼ぶ（中断は失敗に数えない）
 // options.keepButtonEnabled … お手本ボタンを押せるままにする（自動再生用）
+// options.voiceName … 話者に割り当てられた声の名前（スキット用・10-4節）
 async function speakModel(text, options) {
   const opts = options || {};
 
@@ -461,7 +610,7 @@ async function speakModel(text, options) {
   if (!opts.keepButtonEnabled) el.btnPlayModel.disabled = true;
   await ensureVoicesLoaded();
 
-  const { voice, lang } = pickVoice(getSelectedAccent());
+  const { voice, lang } = pickVoice(getSelectedAccent(), opts.voiceName);
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = lang;
   if (voice) utterance.voice = voice;
@@ -493,6 +642,17 @@ async function speakModel(text, options) {
 el.btnPlayModel.addEventListener("click", () => {
   const text = el.targetSentence.textContent.trim();
   if (!text) return;
+
+  // スキットの練習中は、読み替えを通した文字列を、その台詞の話者の声で読む。
+  // **画面に出ている英文は変えない**（10-5節）。
+  // ランダム出題・自由入力は従来どおり（読み替えは skit の会話のための表なので使わない）
+  if (state.skit) {
+    const line = state.skit.lines[state.skitLineIndex];
+    speakModel(applyPronunciations(text), {
+      voiceName: line ? speakerVoiceName(state.skit, line.speaker) : "",
+    });
+    return;
+  }
   speakModel(text);
 });
 
@@ -926,7 +1086,8 @@ function playOtherRoleLine(line) {
   el.btnNextLine.classList.remove("hidden");
   setStatus("status.skitPlaying");
 
-  speakModel(line.en, {
+  speakModel(applyPronunciations(line.en), {
+    voiceName: speakerVoiceName(state.skit, line.speaker),
     keepButtonEnabled: true,
     onEnd: () => {
       // 読み終わる前に手で次へ進んでいたら、二重に進めない

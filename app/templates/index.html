@@ -27,6 +27,20 @@
     <label><input type="radio" name="accent" value="au"> <span data-i18n="accent.au">AU</span></label>
   </section>
 
+  <!-- 話者ごとのお手本の声（spec.txt 10-4節・案3）。上のアクセントで言語を絞り、
+       その中の声を話者A・Bに割り当てる。**スキットタブのときだけ出す**
+       （効くのはスキットの練習中だけなので、他のタブで出すと効かない欄になる） -->
+  <section class="voice-select hidden" id="voice-select">
+    <label class="voice-row">
+      <span class="label" data-i18n="voice.labelA">Voice A:</span>
+      <select id="voice-a"></select>
+    </label>
+    <label class="voice-row">
+      <span class="label" data-i18n="voice.labelB">Voice B:</span>
+      <select id="voice-b"></select>
+    </label>
+  </section>
+
   <section class="tabs">
     <div class="tab-buttons">
       <button class="tab-button active" data-tab="random" data-i18n="tab.random">Random</button>

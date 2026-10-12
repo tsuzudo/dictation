@@ -218,6 +218,36 @@ button:disabled {
   display: none;
 }
 
+/* 話者ごとのお手本の声（8-4節）。スキットタブのときだけ出す */
+#voice-select.hidden {
+  display: none;
+}
+
+.voice-select {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+
+.voice-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.voice-row .label {
+  margin: 0;
+}
+
+.voice-row select {
+  max-width: 220px;
+  padding: 4px 6px;
+  border: 1px solid #d2d2d7;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 13px;
+}
+
 /* 「全台詞」か「役を選ぶ」かの選択（8-6節） */
 .skit-mode {
   margin-bottom: 10px;
@@ -442,6 +472,19 @@ button:disabled {
 
   .done-speaker {
     min-width: 4.5em;
+  }
+
+  /* 声の選択はスマホでは縦に積む（横に並べると選択欄が潰れる） */
+  .voice-select {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .voice-row select {
+    flex: 1;
+    max-width: none;
+    min-height: 36px;
+    font-size: 14px;
   }
 
   /* 役を選ぶ画面も指で押しやすい大きさにする */
