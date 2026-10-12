@@ -115,7 +115,8 @@
     <button id="btn-play-model" disabled data-i18n="btn.playModel">▶ Model</button>
     <!-- 録音ボタンは状態で文言が変わるため data-i18n を付けない。JS側で state.recordButtonKey から出し直す -->
     <button id="btn-record" disabled>● Record</button>
-    <!-- スキットの練習中だけ出す。自分の役では判定のあと、相手役では最初から出す（8-7・8-8節） -->
+    <!-- スキットの練習中だけ出す。文言は状況で変わる（録音前は「スキップ」・8-8節）ため、
+         初期の data-i18n は JS 側（setNextLineButton）が出すたびに書き換える -->
     <button id="btn-next-line" class="hidden" data-i18n="btn.nextLine">Next Line</button>
   </section>
 

@@ -111,6 +111,7 @@ const I18N = {
     "tab.skit": "Skit",
     "btn.backToList": "Back to list",
     "btn.nextLine": "Next Line",
+    "btn.skipLine": "Skip",
     "btn.showTranslation": "▼ Show translation",
     "btn.hideTranslation": "▲ Hide translation",
     "skit.lineCount": "{n} lines",
@@ -161,6 +162,7 @@ const I18N = {
     "tab.skit": "スキット",
     "btn.backToList": "一覧へ",
     "btn.nextLine": "次の台詞へ",
+    "btn.skipLine": "スキップ",
     "btn.showTranslation": "▼ 訳・解説を見る",
     "btn.hideTranslation": "▲ 訳・解説を隠す",
     "skit.lineCount": "{n}行",
@@ -744,8 +746,12 @@ async function transcribeAndShow(blob) {
     renderDiff(diff);
     el.resultSection.classList.remove("hidden");
     el.btnPlayMine.disabled = false;
-    // スキットの練習中だけ、結果の下に「次の台詞へ」を出す（8-8節）
-    if (state.skit) el.btnNextLine.classList.remove("hidden");
+    // スキットの練習中だけ「次の台詞へ」を出す。自分の役の台詞では
+    // 録音前から「スキップ」として出ているので、ここでは文言を切り替える（8-8節）
+    if (state.skit) {
+      setNextLineButton("next");
+      el.btnNextLine.classList.remove("hidden");
+    }
   } catch (err) {
     setStatus("status.checkFailed");
     return;
@@ -1070,7 +1076,15 @@ function showSkitLine() {
   if (line.ja || line.note) el.btnToggleTranslation.classList.remove("hidden");
 
   // 「役を選ぶ」モードで相手役の台詞なら、自分では読まずにお手本を鳴らす（8-7節）
-  if (state.skitRole && line.speaker !== state.skitRole) playOtherRoleLine(line);
+  if (state.skitRole && line.speaker !== state.skitRole) {
+    playOtherRoleLine(line);
+    return;
+  }
+
+  // 自分の役の台詞。**録音せずに飛ばせるようにする**（8-8節）。
+  // 判定が出たら文言を「次の台詞へ」に切り替える（checkRecording 側）
+  setNextLineButton("skip");
+  el.btnNextLine.classList.remove("hidden");
 }
 
 // 相手役の台詞。お手本を自動で鳴らし、読み終わったら次の行へ進む。
@@ -1083,6 +1097,7 @@ function playOtherRoleLine(line) {
   // **ブラウザは利用者の操作なしに音を鳴らすことを制限している**（特にiOS Safari・8-7節）。
   // 鳴らなかったときに先へ進めなくならないよう、「次の台詞へ」を最初から出し、
   // お手本ボタンも押せるままにしておく
+  setNextLineButton("next");
   el.btnNextLine.classList.remove("hidden");
   setStatus("status.skitPlaying");
 
@@ -1181,6 +1196,16 @@ function resetSkitLineExtras() {
   el.translationBox.classList.add("hidden");
   el.translationBox.innerHTML = "";
   el.btnNextLine.classList.add("hidden");
+}
+
+// 「次の台詞へ」ボタンの文言。録音前は「スキップ」、判定が出たあとは「次の台詞へ」
+// （UI_function.txt 8-8節）。動作はどちらも nextSkitLine なのでボタンは1つだけ置く。
+// setTranslationButton と同じく data-i18n も書き換える。そうしないと、スキップ待ちの
+// 状態で言語を切り替えたときに「次の台詞へ」へ戻ってしまう
+function setNextLineButton(mode) {
+  const key = mode === "skip" ? "btn.skipLine" : "btn.nextLine";
+  el.btnNextLine.dataset.i18n = key;
+  el.btnNextLine.textContent = t(key);
 }
 
 // data-i18n も書き換える。そうしないと言語を切り替えたときに
