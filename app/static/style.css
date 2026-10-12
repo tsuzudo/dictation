@@ -223,6 +223,12 @@ button:disabled {
   display: none;
 }
 
+/* 逆に、アクセントはスキットタブでは出さない（8-4節・spec.txt 10-16節）。
+   **汎用の .hidden が無いので、ここに書かないとクラスを付けても消えない** */
+#accent-select.hidden {
+  display: none;
+}
+
 .voice-select {
   display: flex;
   flex-wrap: wrap;

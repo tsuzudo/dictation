@@ -69,6 +69,7 @@ const el = {
   btnStartSkit: document.getElementById("btn-start-skit"),
   btnRoleBack: document.getElementById("btn-role-back"),
   voiceSelect: document.getElementById("voice-select"),
+  accentSelect: document.getElementById("accent-select"),
   voiceA: document.getElementById("voice-a"),
   voiceB: document.getElementById("voice-b"),
 };
@@ -315,6 +316,9 @@ el.tabButtons.forEach((button) => {
     // 声の選択はスキットの練習にしか効かないので、他のタブでは出さない
     // （効かない設定欄を画面に残さないため・spec.txt 10-4節）
     el.voiceSelect.classList.toggle("hidden", target !== "skit");
+    // 逆に、スキットではアクセントを使わない（声を直接選ぶ・spec.txt 10-16節）。
+    // ランダム出題・自由入力は従来どおりアクセントで声が決まる
+    el.accentSelect.classList.toggle("hidden", target === "skit");
 
     if (target === "skit") {
       // 練習中にスキットタブへ戻ってきた場合は、そのまま続ける
@@ -465,11 +469,13 @@ function pickVoice(accent, preferredName) {
   const target = ACCENT_VOICES[accent] || ACCENT_VOICES.us;
   const voices = window.speechSynthesis.getVoices();
   const sameLang = (v) => v.lang.replace("_", "-") === target.lang;
-  const chosen = preferredName
-    ? voices.find((v) => v.name === preferredName && sameLang(v))
-    : null;
-  const voice = chosen
-    || voices.find((v) => v.name === target.name && sameLang(v))
+  // スキットの話者の声は名前だけで探す。**アクセントで絞らない**ので、
+  // 言語タグもその声のものを使う（10-16節）
+  if (preferredName) {
+    const chosen = voices.find((v) => v.name === preferredName);
+    if (chosen) return { voice: chosen, lang: voiceLang(chosen) };
+  }
+  const voice = voices.find((v) => v.name === target.name && sameLang(v))
     || voices.find(sameLang)
     || null;
   return { voice, lang: target.lang };
@@ -491,9 +497,13 @@ function loadSavedVoices() {
   }
 }
 
+// スキット用の1組として覚える。アクセント別に覚えていた古い記憶（"us"/"uk"/"au"）は
+// 読まないだけで、消しには行かない（10-16節）
+const VOICE_SLOT = "skit";
+
 function saveVoiceChoice() {
   const all = loadSavedVoices();
-  all[getSelectedAccent()] = { a: el.voiceA.value, b: el.voiceB.value };
+  all[VOICE_SLOT] = { a: el.voiceA.value, b: el.voiceB.value };
   try {
     localStorage.setItem(VOICE_KEY, JSON.stringify(all));
   } catch (err) {
@@ -501,10 +511,23 @@ function saveVoiceChoice() {
   }
 }
 
-function accentVoices(accent) {
-  const target = ACCENT_VOICES[accent] || ACCENT_VOICES.us;
-  return window.speechSynthesis.getVoices()
-    .filter((v) => v.lang.replace("_", "-") === target.lang);
+// スキットの話者に割り当てられる声。**アクセントでは絞らない**（10-16節）。
+// 豪の声が1つしか見えない環境（Safari等）だと、絞ると話者A・Bが同じ声になり
+// 会話として成立しないため。オーストラリア英会話なので豪を先頭に並べる
+const VOICE_LANG_ORDER = ["en-AU", "en-GB", "en-US"];
+
+function voiceLang(v) {
+  return v.lang.replace("_", "-");
+}
+
+function skitVoices() {
+  const all = window.speechSynthesis.getVoices().filter((v) => voiceLang(v).startsWith("en"));
+  const rank = (v) => {
+    const i = VOICE_LANG_ORDER.indexOf(voiceLang(v));
+    return i === -1 ? VOICE_LANG_ORDER.length : i;
+  };
+  // 同じ言語の中の並びはブラウザが返す順のまま（sortは安定なのでそのまま保たれる）
+  return all.slice().sort((a, b) => rank(a) - rank(b));
 }
 
 // 括弧書きを落とした名前。"Karen (Premium)" と "Karen" は同じ人の声なので、
@@ -513,23 +536,25 @@ function baseVoiceName(name) {
   return name.replace(/\s*\(.*\)\s*$/, "").trim();
 }
 
-// 既定は従来と同じ声（Samantha/Daniel/Karen）から始める。
-// 話者Bはそれと別人の声にしておく（会話として聞き分けられるように）
-function defaultVoiceNames(accent, voices) {
-  const target = ACCENT_VOICES[accent] || ACCENT_VOICES.us;
-  const first = voices.find((v) => v.name === target.name) || voices[0] || null;
+// 既定は**豪を優先する**（10-16節）。オーストラリア英会話なので、何も設定しなくても
+// G'day がグッデイで聞こえる状態にする（米の Samantha・英の Daniel はアルファベット
+// 読みになる・10-15節）。話者Bは別人の声にしておく（会話として聞き分けられるように）
+function defaultVoiceNames(voices) {
+  const au = voices.filter((v) => voiceLang(v) === "en-AU");
+  // 豪が見える端末では豪から選ぶ。従来の既定 Karen があればそれを話者Aにする
+  const pool = au.length ? au : voices;
+  const first = pool.find((v) => v.name === ACCENT_VOICES.au.name) || pool[0] || voices[0] || null;
   if (!first) return { a: "", b: "" };
-  const second = voices.find((v) => baseVoiceName(v.name) !== baseVoiceName(first.name))
-    || voices.find((v) => v !== first)
-    || first;
+  const differs = (v) => baseVoiceName(v.name) !== baseVoiceName(first.name);
+  // 豪に別人がいなければ、他の英語圏から別人を選ぶ（A・Bが同じ声になるのを避ける）
+  const second = pool.find(differs) || voices.find(differs) || voices.find((v) => v !== first) || first;
   return { a: first.name, b: second.name };
 }
 
 function renderVoiceOptions() {
-  const accent = getSelectedAccent();
-  const voices = accentVoices(accent);
-  const saved = loadSavedVoices()[accent] || {};
-  const defaults = defaultVoiceNames(accent, voices);
+  const voices = skitVoices();
+  const saved = loadSavedVoices()[VOICE_SLOT] || {};
+  const defaults = defaultVoiceNames(voices);
 
   [["a", el.voiceA], ["b", el.voiceB]].forEach((pair) => {
     const slot = pair[0];
@@ -571,10 +596,8 @@ function speakerVoiceName(skit, speakerId) {
 el.voiceA.addEventListener("change", saveVoiceChoice);
 el.voiceB.addEventListener("change", saveVoiceChoice);
 
-// アクセントを変えると、並ぶ声も入れ替わる（そのアクセントで前に選んだ声に戻る）
-document.querySelectorAll('input[name="accent"]').forEach((radio) => {
-  radio.addEventListener("change", renderVoiceOptions);
-});
+// アクセントは声の一覧に影響しない（10-16節で切り離した）。
+// ランダム出題・自由入力のお手本だけが、従来どおりアクセントで声を決める
 
 // 声が出揃うのを待ってから中身を作る。待たずに作ると目的の声がまだ無い
 // （2026-07-20 の障害と同じ理由・spec.txt 5-2節）
