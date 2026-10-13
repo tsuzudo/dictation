@@ -22,7 +22,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 APP_PY = REPO / "app" / "app.py"
 SCORING_JS = REPO / "app" / "static" / "scoring.js"
-SENTENCES = REPO / "app" / "sentences.json"
+# 2026-08-18の静的化（コミット5160122）で app/static/ へ移した。パスの直し忘れで
+# このテストは起動すらできない状態だった（2026-10-13に気づいて修正）
+SENTENCES = REPO / "app" / "static" / "sentences.json"
 JSC = Path("/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Helpers/jsc")
 
 
