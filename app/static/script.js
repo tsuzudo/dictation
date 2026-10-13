@@ -520,8 +520,28 @@ function voiceLang(v) {
   return v.lang.replace("_", "-");
 }
 
+// 発音のお手本に使えない声（10-17節）。macOSには電子音・効果音のようなジョーク音声が
+// 標準で入っており、並べると選択欄の半分近くを占める。**実際に本人が誤って選び、
+// 「相手役が非常に聞きづらい」症状になった**（2026-10-13）。
+// Web Speech APIに「ジョーク音声かどうか」を示す項目は無いので、名前で判定するしかない。
+// 取りこぼし（OSが新しい声を増やす）は「変な声が1つ並ぶ」だけで済むが、
+// 許可リスト方式にすると取りこぼしが「使いたい声が出ない」という重い失敗になるため、
+// **除外リストで持つ**。名前は小文字・括弧書きを落とした形で突き合わせる
+const NOVELTY_VOICE_NAMES = new Set([
+  // 効果音・楽器など（macOSの「ノベルティ」分類）
+  "bad news", "bahh", "bells", "boing", "bubbles", "cellos", "good news",
+  "jester", "organ", "pipe organ", "superstar", "trinoids", "whisper",
+  "wobble", "zarvox", "deranged", "hysterical",
+  // 旧世代の機械的な声（現行OSでは残っていないものも含む）
+  "albert", "fred", "junior", "kathy", "ralph", "princess",
+  "agnes", "bruce", "victoria",
+]);
+
 function skitVoices() {
-  const all = window.speechSynthesis.getVoices().filter((v) => voiceLang(v).startsWith("en"));
+  const english = window.speechSynthesis.getVoices().filter((v) => voiceLang(v).startsWith("en"));
+  const usable = english.filter((v) => !NOVELTY_VOICE_NAMES.has(baseVoiceName(v.name).toLowerCase()));
+  // 端末の声がすべて除外対象だった場合の保険。選択欄が空になるよりは出すほうがまし
+  const all = usable.length ? usable : english;
   const rank = (v) => {
     const i = VOICE_LANG_ORDER.indexOf(voiceLang(v));
     return i === -1 ? VOICE_LANG_ORDER.length : i;
