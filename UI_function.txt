@@ -69,6 +69,8 @@
 
 ### 3-2. 出題タブ（spec.txt 4節）
 - 「ランダム出題」タブと「自由入力」タブをタブ切り替えで表示（2026-07-14決定）。
+  **（2026-10-21時点）タブは`Skit`／`Random`／`Free Input`の3つで、既定は`Skit`**
+  （8-1節・spec.txt 10-18節）。この節で扱うのは後ろの2つ。
 - **ランダム出題タブ**
   - 難易度セレクタ（初級・中級・上級）
   - 「次の文章を出す」ボタン：選んだ難易度のプリセット文章集からランダムに1文選び、出題文表示エリアに反映する
@@ -413,19 +415,29 @@ Voice B: [ Lee (Premium) (en-AU)  ▼ ]
    │        └─ 失敗 ────→ [読み込み失敗] （他タブは従来どおり動く・spec.txt 10-8節）
    │
    └─ 一覧表示
-        │ スキットを選ぶ（One roleなら役を選ぶ）
+        │ スキットを選ぶ
         ↓
-      練習中（1行目から）
-        │
+      準備画面（8-6節・練習方法は未選択で出る）
+        │ 練習方法を選ぶ → [練習を始める] ／ [聞く]        [戻る] で一覧へ
+        ├────────────────────────┬────────────────┐
+        ↓                                        ↓
+      練習中（全台詞／役を選ぶ・1行目から）        通しで聞く（8-10節・1行目から）
+        │                                        │
         ├─ 自分の役 → [待機] → 録音 → [モデル読み込み] → [判定中] → 結果
-        │               │                                        │
-        │          [ Skip ]                              [ Next Line ]
-        │               └──────────── 次の行へ ──────────────┘
-        │
-        ├─ 相手役   → [再生中] → 自動で次の行へ
-        │
-        └─ 最終行の後 → [完了。お疲れさまでした] → 一覧へ戻る
+        │               │                        │  ├─ 全台詞を順に [再生中]
+        │          [ Skip ]              [ Next Line ] │   （台詞の間に0.5秒の無音）
+        │               └───── 次の行へ ─────┘  ├─ [一時停止] → [再開] で
+        │                                        │   止めた台詞の最初から
+        ├─ 相手役   → [再生中] → 自動で次の行へ    │
+        │                                        └─ 最終行の後
+        └─ 最終行の後 → [完了。お疲れさまでした]        → [完了。お疲れさまでした]
+             → **一覧へ戻る**                            → **画面はそのまま**
+                                                          （[終了] で準備画面へ・10-25節）
 ```
+
+- **終わり方は練習と「通しで聞く」で違う。** 練習は最後まで判定したら一覧へ戻る（1本ずつ
+  片付ける流れ）。通しで聞くは画面を残し、`[終了]`を押したときだけ準備画面へ戻る
+  （聞き終えた直後に会話全体を見直せるようにするため・spec.txt 10-25節）
 
 - `[モデル読み込み]`・`[判定中]`は既存のまま（4節）
 - 録り直し（`● Record Again`）も既存のまま使える。**次の台詞に進むと`● Record`に戻す**
@@ -449,7 +461,39 @@ Voice B: [ Lee (Premium) (en-AU)  ▼ ]
 - **スキップした台詞も、済んだ台詞の履歴にそのまま残す**（印は付けない）。会話の流れを
   追うのが目的なので、練習したかどうかで見た目を変えない。進捗（`3 / 8`）の数え方も変えない
 
-### 8-10. 通しで聞く（2026-10-21追加・spec.txt 10-20節）
+### 8-9. 対訳表の追加（3-9節の追加分）
+
+| キー | English | 日本語 |
+|---|---|---|
+| `tab.skit` | Skit | スキット |
+| `skit.practiceLabel` | Practice: | 練習方法： |
+| `skit.allLines` | All lines | 全台詞 |
+| `skit.oneRole` | One role | 役を選ぶ |
+| `skit.listenThrough` | Listen through | 通しで聞く |
+| `skit.chooseRole` | Which role do you want to practice? | どちらの役で練習しますか？ |
+| `btn.startSkit` | Start | 練習を始める |
+| `btn.startListening` | Listen | 聞く |
+| `btn.stopListening` | End | 終了 |
+| `btn.back` | Back | 戻る |
+| `btn.pauseListening` | Pause | 一時停止 |
+| `btn.resumeListening` | Resume | 再開 |
+| `status.skitPaused` | Paused | 一時停止中 |
+| `btn.backToList` | Back to list | 一覧へ |
+| `btn.nextLine` | Next Line | 次の台詞へ |
+| `btn.skipLine` | Skip | スキップ |
+| `btn.showTranslation` | ▼ Show translation | ▼ 訳・解説を見る |
+| `btn.hideTranslation` | ▲ Hide translation | ▲ 訳・解説を隠す |
+| `voice.labelA` | Voice A: | 話者Aの声： |
+| `voice.labelB` | Voice B: | 話者Bの声： |
+| `status.skitLoading` | Loading skits… | スキットを読み込み中… |
+| `status.skitFailed` | Could not load the skits. Please try again later. | スキットを読み込めませんでした（しばらくしてからお試しください） |
+| `status.skitPlaying` | Playing… | 再生中… |
+| `skit.done` | Finished. Well done! | 完了。お疲れさまでした |
+| `skit.lineCount` | {n} lines | {n}行 |
+
+- **スキットのタイトルは日本語のまま**（英語UIでも訳さない。spec.txt 10-7節）
+
+### 8-10. 通しで聞く（2026-10-21追加・spec.txt 10-20／10-21／10-25節）
 
 準備画面で`Listen through`を選ぶと、`[練習を始める]`が`[聞く]`に変わる。
 押すと**練習中と同じ画面**で全台詞を順に再生する。
@@ -493,38 +537,6 @@ Use Chrome on a Mac. Safari does not provide the high-quality
 - 本文より小さく、控えめな色（`#86868b`）で出す。操作を妨げないため
 - 閉じる手段は付けない（毎回出す）
 - iOSではChromeを入れても中身はSafariと同じなので、文面はMacの話として書く
-
-### 8-9. 対訳表の追加（3-9節の追加分）
-
-| キー | English | 日本語 |
-|---|---|---|
-| `tab.skit` | Skit | スキット |
-| `skit.practiceLabel` | Practice: | 練習方法： |
-| `skit.allLines` | All lines | 全台詞 |
-| `skit.oneRole` | One role | 役を選ぶ |
-| `skit.listenThrough` | Listen through | 通しで聞く |
-| `skit.chooseRole` | Which role do you want to practice? | どちらの役で練習しますか？ |
-| `btn.startSkit` | Start | 練習を始める |
-| `btn.startListening` | Listen | 聞く |
-| `btn.stopListening` | End | 終了 |
-| `btn.back` | Back | 戻る |
-| `btn.pauseListening` | Pause | 一時停止 |
-| `btn.resumeListening` | Resume | 再開 |
-| `status.skitPaused` | Paused | 一時停止中 |
-| `btn.backToList` | Back to list | 一覧へ |
-| `btn.nextLine` | Next Line | 次の台詞へ |
-| `btn.skipLine` | Skip | スキップ |
-| `btn.showTranslation` | ▼ Show translation | ▼ 訳・解説を見る |
-| `btn.hideTranslation` | ▲ Hide translation | ▲ 訳・解説を隠す |
-| `voice.labelA` | Voice A: | 話者Aの声： |
-| `voice.labelB` | Voice B: | 話者Bの声： |
-| `status.skitLoading` | Loading skits… | スキットを読み込み中… |
-| `status.skitFailed` | Could not load the skits. Please try again later. | スキットを読み込めませんでした（しばらくしてからお試しください） |
-| `status.skitPlaying` | Playing… | 再生中… |
-| `skit.done` | Finished. Well done! | 完了。お疲れさまでした |
-| `skit.lineCount` | {n} lines | {n}行 |
-
-- **スキットのタイトルは日本語のまま**（英語UIでも訳さない。spec.txt 10-7節）
 
 ## 9. 更新履歴
 - 2026-07-14：初版作成。1画面完結、手動録音開始/終了、タブ切り替えによる出題方式の共存、差分アルゴリズムにdifflib採用、を決定。

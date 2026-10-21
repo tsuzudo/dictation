@@ -4,10 +4,18 @@
 
 ## リポジトリの目的
 
-英語学習のための発音チェックアプリ「dictation」を作る。
-自分で用意した英文（プリセットまたは自由入力）を音読し、Whisperで文字起こしした結果と
-出題文を比較して発音をチェックする。参考にしたアプリ：Eリピ
-（https://qiita.com/RyumaRyama/items/bdfeff51f75b53a09e0e）
+英語学習のための発音練習アプリ **「Listen&Talk」** を作る（2026-10-21に`Dictation`から
+改名・spec.txt 1節。**リポジトリ名と公開URLは`dictation`のまま**）。
+英文を音読し、Whisperで文字起こしした結果と出題文を比較して発音をチェックする。
+参考にしたアプリ：Eリピ（https://qiita.com/RyumaRyama/items/bdfeff51f75b53a09e0e）
+
+出題は3つ。**既定はスキット**（spec.txt 10-18節）。
+
+| タブ | 内容 |
+|---|---|
+| スキット（既定） | 隣の`English_conversation/skit`の英会話14本。会話を選ぶと準備画面が出て、「全台詞／役を選ぶ／通しで聞く」から選んで始める（spec.txt 第10章） |
+| ランダム出題 | プリセット320件から難易度別に1文ずつ |
+| 自由入力 | 好きな英文を入れて練習 |
 
 ## 重要な運用ルール
 将来的にWebサーバーを通して一般ユーザに使ってもらうことを考えている。詳細はspec.txtの2節に記録している。
@@ -17,12 +25,31 @@
 - `UI_function.txt`：UI・機能設計書
 - 新しい仕様変更が入ったら、まずこの2つのファイルに日付付きで反映してから実装に進めること
 
-## 実装状況（2026-07-14 MVP完成）
-- `app/`：Flask（Python）バックエンド＋ブラウザ画面のフロントエンド
-- `app/app.py`：出題API、`say`コマンドでのお手本再生、sounddeviceでの録音、Whisperでの文字起こし、difflibでの単語単位差分判定
-- `app/sentences.json`：初級・中級・上級のプリセット出題文
-- `run.sh`：起動スクリプト（`./run.sh` を実行するとサーバー起動＋ブラウザが開く）
-- 米・英・豪のアクセント切り替えに対応（お手本の声を切り替えるのみ。判定ロジックは共通）
+## 実装状況（2026-10-21時点）
+
+**現行はブラウザ内で完結する静的版**（2026-08-18移行・spec.txt 9-2節）。
+録音・文字起こし（Transformers.js + Whisper tiny.en）・判定・お手本読み上げ
+（Web Speech API）をすべてブラウザで行い、サーバーは持たない。
+
+- `app/templates/index.html`：画面。`app/static/script.js`：全体の制御と日英の文言辞書
+- `app/static/scoring.js`：判定ロジック（`app.py`からの移植。**両方を直したら
+  `python3 tests/compare_scoring.py` で一致を確認する**）
+- `app/static/sentences.json`：初級・中級・上級のプリセット出題文（ブラウザが`fetch`する）
+- `app/static/transcriber.js`：Transformers.jsの読み込みと文字起こし
+- 米・英・豪のアクセント切り替えに対応（お手本の声を切り替えるのみ。判定ロジックは共通）。
+  **スキットタブではアクセントを使わず、話者A・Bの声を直接選ぶ**（spec.txt 10-16節）
+- **SafariはPremiumの声をWebページへ渡さない**ため、画面に「MacのChrome推奨」と出している
+  （spec.txt 10-17・10-24節）
+
+手元で試すときは静的版をビルドして配信する（Flaskは使わない）:
+
+```bash
+./build_site.sh && python3 tests/serve.py 8099 _site
+```
+
+### 残置物（現在は使っていない）
+- `app/app.py`・`Dockerfile`・`deploy.sh`・`run.sh`・`requirements.txt`：Cloud Run時代の
+  Flask版。サービスは2026-08-18に停止済み（下の節）。削除するかは保留中
 
 ## Deployment（GitHub Pages・現行の公開先）
 
