@@ -20,6 +20,10 @@ const state = {
   skitLineIndex: 0,
   // 「役を選ぶ」モードで練習する役のID。「全台詞」モードでは null
   skitRole: null,
+  // 「通しで聞く」モード（spec.txt 10-20節）。録音も判定もせず、全台詞を順に再生する
+  skitListen: false,
+  // 通しで聞いている最中の一時停止（spec.txt 10-21節）。再開は止めた台詞の最初から
+  skitPaused: false,
 };
 
 // 隣の English_conversation/skit が公開している会話データ（spec.txt 10-1節）。
@@ -65,8 +69,13 @@ const el = {
   translationBox: document.getElementById("translation-box"),
   sentenceSpeaker: document.getElementById("sentence-speaker"),
   skitRoleView: document.getElementById("skit-role-view"),
+  skitPrepareTitle: document.getElementById("skit-prepare-title"),
+  skitModeRole: document.getElementById("skit-mode-role"),
+  skitRolePick: document.getElementById("skit-role-pick"),
   skitRoleChoices: document.getElementById("skit-role-choices"),
   btnStartSkit: document.getElementById("btn-start-skit"),
+  btnStopListening: document.getElementById("btn-stop-listening"),
+  btnPauseListening: document.getElementById("btn-pause-listening"),
   btnRoleBack: document.getElementById("btn-role-back"),
   voiceSelect: document.getElementById("voice-select"),
   accentSelect: document.getElementById("accent-select"),
@@ -79,7 +88,7 @@ const el = {
 // この対訳表が文言の正。増やすときは en/ja の両方に同じキーを足すこと。
 const I18N = {
   en: {
-    "app.title": "Dictation - Pronunciation Check",
+    "app.title": "Listen&Talk - Pronunciation Practice",
     "accent.label": "Accent:",
     "accent.us": "US",
     "accent.uk": "UK",
@@ -122,15 +131,22 @@ const I18N = {
     "skit.practiceLabel": "Practice:",
     "skit.allLines": "All lines",
     "skit.oneRole": "One role",
+    "skit.listenThrough": "Listen through",
     "skit.chooseRole": "Which role do you want to practice?",
     "btn.startSkit": "Start",
+    "btn.startListening": "Listen",
+    "btn.stopListening": "End",
+    "btn.back": "Back",
+    "btn.pauseListening": "Pause",
+    "btn.resumeListening": "Resume",
     "status.skitPlaying": "Playing...",
+    "status.skitPaused": "Paused",
     "voice.labelA": "Voice A:",
     "voice.labelB": "Voice B:",
     "voice.none": "(no voice for this accent on this device)",
   },
   ja: {
-    "app.title": "Dictation - 発音チェック",
+    "app.title": "Listen&Talk - 発音練習",
     "accent.label": "アクセント：",
     "accent.us": "米",
     "accent.uk": "英",
@@ -173,9 +189,16 @@ const I18N = {
     "skit.practiceLabel": "練習方法：",
     "skit.allLines": "全台詞",
     "skit.oneRole": "役を選ぶ",
+    "skit.listenThrough": "通しで聞く",
     "skit.chooseRole": "どちらの役で練習しますか？",
     "btn.startSkit": "練習を始める",
+    "btn.startListening": "聞く",
+    "btn.stopListening": "終了",
+    "btn.back": "戻る",
+    "btn.pauseListening": "一時停止",
+    "btn.resumeListening": "再開",
     "status.skitPlaying": "再生中...",
+    "status.skitPaused": "一時停止中",
     "voice.labelA": "話者Aの声：",
     "voice.labelB": "話者Bの声：",
     "voice.none": "（この端末にはこのアクセントの声がありません）",
@@ -304,37 +327,39 @@ function setControlsEnabled(enabled) {
   el.skitRoleChoices.querySelectorAll("input").forEach((r) => (r.disabled = !enabled));
 }
 
-el.tabButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    el.tabButtons.forEach((b) => b.classList.remove("active"));
-    button.classList.add("active");
-    const target = button.dataset.tab;
-    el.tabPanels.forEach((panel) => {
-      panel.classList.toggle("hidden", panel.dataset.panel !== target);
-    });
-
-    // 声の選択はスキットの練習にしか効かないので、他のタブでは出さない
-    // （効かない設定欄を画面に残さないため・spec.txt 10-4節）
-    el.voiceSelect.classList.toggle("hidden", target !== "skit");
-    // 逆に、スキットではアクセントを使わない（声を直接選ぶ・spec.txt 10-16節）。
-    // ランダム出題・自由入力は従来どおりアクセントで声が決まる
-    el.accentSelect.classList.toggle("hidden", target === "skit");
-
-    if (target === "skit") {
-      // 練習中にスキットタブへ戻ってきた場合は、そのまま続ける
-      if (!state.skit) {
-        // 一覧を出すときは、他のタブで出した出題文を片付ける（2026-10-12 決定）。
-        // 残すと一覧の下に関係のない英文が並んで紛らわしいため
-        clearSentence();
-        showSkitList();
-      }
-    } else if (state.skit) {
-      // スキットから離れたら練習を終えて一覧に戻す。
-      // 残したままにすると、他のタブで出題文を入れ替えたあとスキットへ戻ったとき
-      // 「3 / 8」の表示と出題文が食い違う（進捗は覚えない方針なので捨ててよい）
-      leaveSkit();
-    }
+// タブを開く。クリックだけでなく起動時（既定のスキットタブ）からも呼ぶため関数にしてある
+// （2026-10-21・spec.txt 10-18節）
+function activateTab(target) {
+  el.tabButtons.forEach((b) => b.classList.toggle("active", b.dataset.tab === target));
+  el.tabPanels.forEach((panel) => {
+    panel.classList.toggle("hidden", panel.dataset.panel !== target);
   });
+
+  // 声の選択はスキットの練習にしか効かないので、他のタブでは出さない
+  // （効かない設定欄を画面に残さないため・spec.txt 10-4節）
+  el.voiceSelect.classList.toggle("hidden", target !== "skit");
+  // 逆に、スキットではアクセントを使わない（声を直接選ぶ・spec.txt 10-16節）。
+  // ランダム出題・自由入力は従来どおりアクセントで声が決まる
+  el.accentSelect.classList.toggle("hidden", target === "skit");
+
+  if (target === "skit") {
+    // 練習中にスキットタブへ戻ってきた場合は、そのまま続ける
+    if (!state.skit) {
+      // 一覧を出すときは、他のタブで出した出題文を片付ける（2026-10-12 決定）。
+      // 残すと一覧の下に関係のない英文が並んで紛らわしいため
+      clearSentence();
+      showSkitList();
+    }
+  } else if (state.skit) {
+    // スキットから離れたら練習を終えて一覧に戻す。
+    // 残したままにすると、他のタブで出題文を入れ替えたあとスキットへ戻ったとき
+    // 「3 / 8」の表示と出題文が食い違う（進捗は覚えない方針なので捨ててよい）
+    leaveSkit();
+  }
+}
+
+el.tabButtons.forEach((button) => {
+  button.addEventListener("click", () => activateTab(button.dataset.tab));
 });
 
 // （2026-07-20）サーバーは利用者ごとの状態を持たないため、直近の出題履歴は
@@ -1025,9 +1050,10 @@ async function showSkitList() {
 
 // --- 練習 ---
 
+// 未選択なら null。会話を選んだ直後は未選択から始める（spec.txt 10-23節）
 function getSkitMode() {
   const checked = document.querySelector('input[name="skit-mode"]:checked');
-  return checked ? checked.value : "all";
+  return checked ? checked.value : null;
 }
 
 function startSkit(slug) {
@@ -1037,17 +1063,61 @@ function startSkit(slug) {
   state.skit = skit;
   state.skitRole = null;
   setStatus("");
-
-  // 「役を選ぶ」モードなら、始める前にどの役かを聞く（8-6節）。
-  // 話者が1人しかいない会話では聞く意味がないので、そのまま全台詞で始める
-  if (getSkitMode() === "role" && (skit.speakers || []).length > 1) {
-    el.skitListView.classList.add("hidden");
-    el.skitRoleView.classList.remove("hidden");
-    renderRoleChoices();
-    return;
-  }
-  beginPractice(null);
+  // 練習方法（と、役を選ぶなら役）は、この会話について始める前に選ぶ（10-19節）
+  showPrepareView();
 }
+
+// 準備画面。スキットを選んだ直後に出す（spec.txt 10-19節・UI_function.txt 8-6節）
+function showPrepareView() {
+  const skit = state.skit;
+  if (!skit) return;
+  el.skitListView.classList.add("hidden");
+  el.skitPracticeView.classList.add("hidden");
+  el.skitRoleView.classList.remove("hidden");
+  renderPrepareTitle();
+
+  // 話者が1人しかいない会話では「役を選ぶ」を選べない（相手役がいないため・10-19節）
+  const roleRadio = el.skitModeRole.querySelector("input");
+  const multi = (skit.speakers || []).length > 1;
+  roleRadio.disabled = !multi;
+  el.skitModeRole.classList.toggle("disabled", !multi);
+  if (!multi && roleRadio.checked) {
+    const allRadio = document.querySelector('input[name="skit-mode"][value="all"]');
+    if (allRadio) allRadio.checked = true;
+  }
+
+  // 練習方法は毎回自分で選ぶ（10-23節）。前の会話での選択は引き継がない
+  document.querySelectorAll('input[name="skit-mode"]').forEach((r) => (r.checked = false));
+
+  // 会話を選び直したら役の選択は1番目に戻す（10-3節）
+  renderRoleChoices();
+  syncRolePick();
+}
+
+// 準備画面の見出し。行数は言語で変わるので、言語を切り替えたときも作り直す
+function renderPrepareTitle() {
+  const skit = state.skit;
+  if (!skit) return;
+  el.skitPrepareTitle.textContent =
+    skit.title + " ・ " + tf("skit.lineCount", { n: skit.lines.length });
+}
+
+// 役の選択は「役を選ぶ」のときだけ出す（「全台詞」では選ぶ意味がないため・10-19節）。
+// あわせて開始ボタンの文言を切り替える（「通しで聞く」は練習ではないため・10-20節）
+function syncRolePick() {
+  const mode = getSkitMode();
+  el.skitRolePick.classList.toggle("hidden", mode !== "role");
+  // 選んでいない間は始められない（何が起きるか分からないまま押させないため・10-23節）
+  el.btnStartSkit.disabled = mode === null;
+  // data-i18n も書き換える。そうしないと言語を切り替えたときに元の文言へ戻ってしまう
+  const key = mode === "listen" ? "btn.startListening" : "btn.startSkit";
+  el.btnStartSkit.dataset.i18n = key;
+  el.btnStartSkit.textContent = t(key);
+}
+
+document.querySelectorAll('input[name="skit-mode"]').forEach((radio) => {
+  radio.addEventListener("change", syncRolePick);
+});
 
 // 役の選択肢を作る。話者が3人以上の会話でもそのまま並ぶ。
 // keepSelection は言語を切り替えて作り直すときだけ true にする。
@@ -1081,23 +1151,103 @@ function renderRoleChoices(keepSelection) {
   });
 }
 
-// roleId を渡すと「役を選ぶ」モード、null なら「全台詞」モード
-function beginPractice(roleId) {
+// roleId を渡すと「役を選ぶ」モード、null なら「全台詞」モード。
+// listen を true にすると「通しで聞く」モード（録音も判定もしない・10-20節）
+function beginPractice(roleId, listen) {
   if (!state.skit) return;
   state.skitRole = roleId || null;
+  state.skitListen = !!listen;
   state.skitLineIndex = 0;   // 進捗は覚えない。毎回1行目から（10-3節）
   el.skitListView.classList.add("hidden");
   el.skitRoleView.classList.add("hidden");
   el.skitPracticeView.classList.remove("hidden");
+  // [一時停止]・[停止] は聞いているときだけ出す
+  state.skitPaused = false;
+  clearListenGap();
+  setPauseButton(false);
+  el.btnPauseListening.classList.toggle("hidden", !state.skitListen);
+  el.btnStopListening.classList.toggle("hidden", !state.skitListen);
+  // 聞いている間は出口を [終了] 1つにする（10-22節）。練習中は従来どおり [一覧へ] を出す
+  el.btnBackToList.classList.toggle("hidden", state.skitListen);
+  el.btnNextLine.disabled = false;
   el.skitTitle.textContent = state.skit.title;
   setStatus("");
   renderSkitDoneLines();
   showSkitLine();
 }
 
+// 聞き終えた／やめたときに戻る先。一覧（leaveSkit）と違い、選んだ会話は保ったまま
+// 準備画面へ戻すので、そのまま練習を始められる（10-20節）
+function backToPrepareView() {
+  if (!state.skit) return;
+  state.skitListen = false;
+  state.skitPaused = false;
+  clearListenGap();
+  el.btnPauseListening.classList.add("hidden");
+  el.btnBackToList.classList.remove("hidden");
+  el.btnNextLine.disabled = false;
+  state.skitRole = null;
+  state.skitLineIndex = 0;
+  el.skitPracticeView.classList.add("hidden");
+  el.btnStopListening.classList.add("hidden");
+  el.skitDoneLines.innerHTML = "";
+  el.skitProgress.textContent = "";
+  el.skitTitle.textContent = "";
+  clearSentence();   // お手本の再生もここで止まる
+  // 「再生中…」が残らないように消す。聞き終えた場合は呼び出し元（finishSkit）が
+  // このあと「完了」に差し替える
+  setStatus("");
+  showPrepareView();
+}
+
 el.btnStartSkit.addEventListener("click", () => {
+  const mode = getSkitMode();
+  if (mode === null) return;   // 押せないようにしてあるが、念のため
+  // 通しで聞く（10-20節）。役は使わず、全台詞を順に再生する
+  if (mode === "listen") {
+    beginPractice(null, true);
+    return;
+  }
+  // 「全台詞」のときは役を渡さない（役のラジオは残っていても使わない）
+  if (mode !== "role") {
+    beginPractice(null);
+    return;
+  }
   const chosen = el.skitRoleChoices.querySelector('input[name="skit-role"]:checked');
   beginPractice(chosen ? chosen.value : null);
+});
+
+// 聞くのをやめる。一覧までは戻さず準備画面へ戻す（そのまま練習に入れるように・10-20節）
+el.btnStopListening.addEventListener("click", backToPrepareView);
+
+// 一時停止ボタンの文言。data-i18n も書き換える（言語を切り替えても戻らないように）
+function setPauseButton(paused) {
+  const key = paused ? "btn.resumeListening" : "btn.pauseListening";
+  el.btnPauseListening.dataset.i18n = key;
+  el.btnPauseListening.textContent = t(key);
+}
+
+// 一時停止と再開（spec.txt 10-21節）。
+// **再開は止めた台詞の最初から鳴らし直す。** 途中から続けないのは、ブラウザの
+// pause()／resume() が当てにならないため（止めた位置が分からなくなるより確実）
+el.btnPauseListening.addEventListener("click", () => {
+  if (!state.skitListen || !state.skit) return;
+
+  if (!state.skitPaused) {
+    state.skitPaused = true;
+    clearListenGap();
+    stopModelPlayback();
+    setPauseButton(true);
+    setStatus("status.skitPaused");
+    // 止めたのに先へ進めると、どの台詞で止まっているか分からなくなる
+    el.btnNextLine.disabled = true;
+    return;
+  }
+
+  state.skitPaused = false;
+  setPauseButton(false);
+  el.btnNextLine.disabled = false;
+  showSkitLine();   // 同じ台詞をもう一度、最初から
 });
 
 el.btnRoleBack.addEventListener("click", leaveSkit);
@@ -1115,11 +1265,18 @@ function showSkitLine() {
   // setSentence が付加表示（話者名・訳・次の台詞へ）を片付けるので、その後に出す
   setSentence(line.en);
   el.sentenceSpeaker.textContent = speakerTag(skit, line.speaker);
-  // 訳が無い会話ではボタンそのものを出さない（8-5節）
-  if (line.ja || line.note) el.btnToggleTranslation.classList.remove("hidden");
+  if (state.skitListen) {
+    // 聞くだけのときは答えを隠す理由が無いので、訳・解説を最初から出す（10-21節）。
+    // 開閉ボタンは出さない（常に開いているため押す意味がない）
+    renderTranslationBox(line);
+  } else if (line.ja || line.note) {
+    // 訳が無い会話ではボタンそのものを出さない（8-5節）
+    el.btnToggleTranslation.classList.remove("hidden");
+  }
 
+  // 「通しで聞く」モードは全台詞を鳴らす（10-20節）。
   // 「役を選ぶ」モードで相手役の台詞なら、自分では読まずにお手本を鳴らす（8-7節）
-  if (state.skitRole && line.speaker !== state.skitRole) {
+  if (state.skitListen || (state.skitRole && line.speaker !== state.skitRole)) {
     playOtherRoleLine(line);
     return;
   }
@@ -1128,6 +1285,17 @@ function showSkitLine() {
   // 判定が出たら文言を「次の台詞へ」に切り替える（checkRecording 側）
   setNextLineButton("skip");
   el.btnNextLine.classList.remove("hidden");
+}
+
+// 「通しで聞く」ときに台詞と台詞の間に挟む無音（spec.txt 10-21節）。
+// 間を置かないと話者が替わったことが聞き取りにくい
+const LISTEN_GAP_MS = 500;
+let listenGapTimer = null;
+
+function clearListenGap() {
+  if (listenGapTimer === null) return;
+  clearTimeout(listenGapTimer);
+  listenGapTimer = null;
 }
 
 // 相手役の台詞。お手本を自動で鳴らし、読み終わったら次の行へ進む。
@@ -1150,7 +1318,21 @@ function playOtherRoleLine(line) {
     onEnd: () => {
       // 読み終わる前に手で次へ進んでいたら、二重に進めない
       if (!state.skit || state.skitLineIndex !== atIndex) return;
+      // 一時停止で読み上げを止めた場合もここへ来る（cancel() が end を起こすため）。
+      // 「一時停止中」の表示を消してしまわないよう、何もせず抜ける（10-21節）
+      if (state.skitPaused) return;
       setStatus("");
+      // 通しで聞くときは、次の台詞までに少し間を置く（10-21節）
+      if (state.skitListen) {
+        clearListenGap();
+        listenGapTimer = setTimeout(() => {
+          listenGapTimer = null;
+          // 間の最中に一時停止・停止・手送りされていたら進めない
+          if (!state.skit || state.skitLineIndex !== atIndex || state.skitPaused) return;
+          nextSkitLine();
+        }, LISTEN_GAP_MS);
+        return;
+      }
       nextSkitLine();
     },
     onError: () => {
@@ -1194,6 +1376,12 @@ function nextSkitLine() {
 }
 
 function finishSkit() {
+  // 聞き終えた場合は一覧まで戻さず準備画面へ（そのまま練習に入れるように・10-20節）
+  if (state.skitListen) {
+    backToPrepareView();
+    setStatus("skit.done");
+    return;
+  }
   leaveSkit();
   setStatus("skit.done");
 }
@@ -1216,7 +1404,14 @@ function leaveSkit() {
   state.skit = null;
   state.skitLineIndex = 0;
   state.skitRole = null;
+  state.skitListen = false;
+  state.skitPaused = false;
+  clearListenGap();
   el.skitPracticeView.classList.add("hidden");
+  el.btnStopListening.classList.add("hidden");
+  el.btnPauseListening.classList.add("hidden");
+  el.btnBackToList.classList.remove("hidden");
+  el.btnNextLine.disabled = false;
   el.skitRoleView.classList.add("hidden");
   el.skitListView.classList.remove("hidden");
   // 練習中に言語を切り替えた場合、一覧は切り替え前の言語のまま残っている
@@ -1268,8 +1463,18 @@ el.btnToggleTranslation.addEventListener("click", () => {
   }
   const line = state.skit && state.skit.lines[state.skitLineIndex];
   if (!line) return;
+  renderTranslationBox(line);
+  setTranslationButton(true);
+});
 
+// 訳・解説を出す。開閉ボタンからも、「通しで聞く」の常時表示からも使う（10-21節）
+function renderTranslationBox(line) {
   el.translationBox.innerHTML = "";
+  if (!line || (!line.ja && !line.note)) {
+    // 訳も解説も無い台詞では何も出さない
+    el.translationBox.classList.add("hidden");
+    return;
+  }
   if (line.ja) {
     const ja = document.createElement("p");
     ja.className = "translation-ja";
@@ -1283,8 +1488,7 @@ el.btnToggleTranslation.addEventListener("click", () => {
     el.translationBox.appendChild(note);
   }
   el.translationBox.classList.remove("hidden");
-  setTranslationButton(true);
-});
+}
 
 el.btnNextLine.addEventListener("click", nextSkitLine);
 el.btnBackToList.addEventListener("click", leaveSkit);
@@ -1295,6 +1499,7 @@ function renderSkitUI() {
   if (!skitData) return;
   // 役を選んでいる最中なら、役名を今の言語で作り直す（選択は保つ）
   if (!el.skitRoleView.classList.contains("hidden")) {
+    renderPrepareTitle();
     renderRoleChoices(true);
     return;
   }
@@ -1309,3 +1514,8 @@ function renderSkitUI() {
 
 // 起動時に、前回選んだ言語（無ければ既定の英語）でUI全体を描画する
 applyLanguage(loadSavedLang());
+
+// 既定はスキットタブ（2026-10-21・spec.txt 10-18節）。HTML側も同じ状態で書いてあるが、
+// 一覧の取得・描画はここでしか起きないので、タブを押したときと同じ道を通す。
+// 開いていたタブは記憶しない方針なので、毎回ここから始まる
+activateTab("skit");

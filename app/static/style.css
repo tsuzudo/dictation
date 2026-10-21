@@ -211,6 +211,10 @@ button:disabled {
 /* 隠す指定は要素ごとに書く（このCSSには汎用の .hidden が無い） */
 #skit-list-view.hidden,
 #skit-role-view.hidden,
+#skit-role-pick.hidden,
+#btn-stop-listening.hidden,
+#btn-pause-listening.hidden,
+#btn-back-to-list.hidden,
 #skit-practice-view.hidden,
 #btn-toggle-translation.hidden,
 #btn-next-line.hidden,
@@ -504,4 +508,16 @@ button:disabled {
     min-height: 48px;
     font-size: 16px;
   }
+}
+
+/* 準備画面の見出し（どの会話を選んだか・2026-10-21・UI_function.txt 8-6節） */
+.skit-prepare-title {
+  margin: 0 0 12px;
+  font-weight: 600;
+}
+
+/* 話者が1人の会話では「役を選ぶ」を選べない。押せないことを見て分かるようにする */
+#skit-mode-role.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }

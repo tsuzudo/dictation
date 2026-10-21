@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dictation - Pronunciation Check</title>
+<title>Listen&amp;Talk - Pronunciation Practice</title>
 <!-- パスは相対で書く。GitHub Pagesではサイトが /dictation/ 配下に置かれるため、
      /static/... と絶対で書くと404になる（spec.txt 9-2節） -->
 <link rel="stylesheet" href="static/style.css">
@@ -13,7 +13,7 @@
 <!-- data-i18n / data-i18n-placeholder は言語切替の目印。文言の正は UI_function.txt 3-9節の対訳表 -->
 <div class="app">
   <header class="app-header">
-    <h1 data-i18n="app.title">Dictation - Pronunciation Check</h1>
+    <h1 data-i18n="app.title">Listen&amp;Talk - Pronunciation Practice</h1>
     <div class="lang-switch">
       <button type="button" class="lang-button" data-lang="en">English</button>
       <button type="button" class="lang-button" data-lang="ja">日本語</button>
@@ -21,7 +21,7 @@
   </header>
 
   <!-- スキットタブでは出さない（声はアクセントではなく直接選ぶ・8-4節） -->
-  <section class="accent-select" id="accent-select">
+  <section class="accent-select hidden" id="accent-select">
     <span class="label" data-i18n="accent.label">Accent:</span>
     <label><input type="radio" name="accent" value="us" checked> <span data-i18n="accent.us">US</span></label>
     <label><input type="radio" name="accent" value="uk"> <span data-i18n="accent.uk">UK</span></label>
@@ -31,7 +31,7 @@
   <!-- 話者ごとのお手本の声（spec.txt 10-4節・案3）。上のアクセントで言語を絞り、
        その中の声を話者A・Bに割り当てる。**スキットタブのときだけ出す**
        （効くのはスキットの練習中だけなので、他のタブで出すと効かない欄になる） -->
-  <section class="voice-select hidden" id="voice-select">
+  <section class="voice-select" id="voice-select">
     <label class="voice-row">
       <span class="label" data-i18n="voice.labelA">Voice A:</span>
       <select id="voice-a"></select>
@@ -44,12 +44,14 @@
 
   <section class="tabs">
     <div class="tab-buttons">
-      <button class="tab-button active" data-tab="random" data-i18n="tab.random">Random</button>
+      <!-- 既定はスキット（2026-10-21・spec.txt 10-18節）。並び順も既定が先頭に来るようにした。
+           起動時の active / hidden は script.js の activateTab("skit") とも揃えてある -->
+      <button class="tab-button active" data-tab="skit" data-i18n="tab.skit">Skit</button>
+      <button class="tab-button" data-tab="random" data-i18n="tab.random">Random</button>
       <button class="tab-button" data-tab="free" data-i18n="tab.free">Free Input</button>
-      <button class="tab-button" data-tab="skit" data-i18n="tab.skit">Skit</button>
     </div>
 
-    <div class="tab-panel" data-panel="random">
+    <div class="tab-panel hidden" data-panel="random">
       <span class="label" data-i18n="difficulty.label">Difficulty:</span>
       <!-- 表示はEasy/Medium/Hardだが、value（内部値）は変更しない。サーバーAPIとの互換のため（spec.txt 5-9節） -->
       <label><input type="radio" name="difficulty" value="beginner" checked> <span data-i18n="difficulty.beginner">Easy</span></label>
@@ -65,26 +67,36 @@
 
     <!-- スキット（隣のEnglish_conversationの英会話集を出題文にする・UI_function.txt 8節）。
          この中で「一覧」と「練習中」を切り替える（1画面完結の方針は変えない） -->
-    <div class="tab-panel hidden" data-panel="skit">
+    <div class="tab-panel" data-panel="skit">
       <div id="skit-list-view">
-        <div class="skit-mode">
-          <span class="label" data-i18n="skit.practiceLabel">Practice:</span>
-          <label><input type="radio" name="skit-mode" value="all" checked> <span data-i18n="skit.allLines">All lines</span></label>
-          <label><input type="radio" name="skit-mode" value="role"> <span data-i18n="skit.oneRole">One role</span></label>
-        </div>
         <div id="skit-list" class="skit-list"></div>
       </div>
 
-      <!-- 役を選ぶ（「役を選ぶ」モードでスキットを選んだ直後に出す・8-6節）。
+      <!-- 準備画面（2026-10-21・spec.txt 10-19節）。スキットを選んだ直後に出し、
+           練習方法と（「役を選ぶ」のときだけ）役をここで決める。
            役が3人以上のスキットでも同じ作りでそのまま扱える -->
       <div id="skit-role-view" class="hidden">
-        <p class="skit-role-question" data-i18n="skit.chooseRole">Which role do you want to practice?</p>
-        <div id="skit-role-choices" class="skit-role-choices"></div>
+        <p id="skit-prepare-title" class="skit-prepare-title"></p>
+        <div class="skit-mode">
+          <span class="label" data-i18n="skit.practiceLabel">Practice:</span>
+          <!-- 既定では選ばない。自分で選んでから始めてもらう（2026-10-21・spec.txt 10-23節） -->
+          <label><input type="radio" name="skit-mode" value="all"> <span data-i18n="skit.allLines">All lines</span></label>
+          <!-- 話者が1人の会話では「役を選ぶ」を押せないようにする（相手役がいないため） -->
+          <label id="skit-mode-role"><input type="radio" name="skit-mode" value="role"> <span data-i18n="skit.oneRole">One role</span></label>
+          <!-- 通しで聞く（2026-10-21・spec.txt 10-20節）。全台詞をお手本の声で順に再生する -->
+          <label><input type="radio" name="skit-mode" value="listen"> <span data-i18n="skit.listenThrough">Listen through</span></label>
+        </div>
+        <!-- 役の選択は「役を選ぶ」のときだけ出す -->
+        <div id="skit-role-pick" class="hidden">
+          <p class="skit-role-question" data-i18n="skit.chooseRole">Which role do you want to practice?</p>
+          <div id="skit-role-choices" class="skit-role-choices"></div>
+        </div>
         <div class="skit-role-buttons">
           <button id="btn-start-skit" data-i18n="btn.startSkit">Start</button>
-          <!-- 役を選ぶ画面からも一覧へ戻れるようにする（設計書のワイヤーには無かったが、
-               戻る手段が無いと選び直せないため・2026-10-12 追加） -->
-          <button id="btn-role-back" data-i18n="btn.backToList">Back to list</button>
+          <!-- 準備画面からも一覧へ戻れるようにする（設計書のワイヤーには無かったが、
+               戻る手段が無いと選び直せないため・2026-10-12 追加）。
+               1つ前の画面へ戻るだけなので文言は「戻る」（2026-10-21・spec.txt 10-22節） -->
+          <button id="btn-role-back" data-i18n="btn.back">Back</button>
         </div>
       </div>
 
@@ -92,6 +104,10 @@
         <div class="skit-practice-header">
           <span id="skit-title" class="skit-title"></span>
           <span id="skit-progress" class="skit-progress"></span>
+          <!-- 通しで聞いているときだけ出す（8-10節）。
+               一時停止は「止めた台詞の最初から」鳴らし直す、停止は準備画面へ戻る -->
+          <button id="btn-pause-listening" class="hidden" data-i18n="btn.pauseListening">Pause</button>
+          <button id="btn-stop-listening" class="hidden" data-i18n="btn.stopListening">End</button>
           <button id="btn-back-to-list" data-i18n="btn.backToList">Back to list</button>
         </div>
         <!-- 済んだ台詞。会話の流れの中で練習する目的なので、前の台詞を残す（8-3節） -->
