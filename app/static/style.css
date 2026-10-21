@@ -30,6 +30,14 @@ h1 {
   margin: 0;
 }
 
+/* ブラウザの推奨（spec.txt 10-24節）。操作を妨げないよう小さく控えめに出す */
+.browser-notice {
+  margin: -12px 0 16px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #86868b;
+}
+
 .lang-switch {
   display: flex;
   gap: 4px;

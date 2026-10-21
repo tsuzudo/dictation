@@ -89,6 +89,7 @@ const el = {
 const I18N = {
   en: {
     "app.title": "Listen&Talk - Pronunciation Practice",
+    "app.browserNotice": "Use Chrome on a Mac. Safari does not provide the high-quality (Premium) voices.",
     "accent.label": "Accent:",
     "accent.us": "US",
     "accent.uk": "UK",
@@ -147,6 +148,7 @@ const I18N = {
   },
   ja: {
     "app.title": "Listen&Talk - 発音練習",
+    "app.browserNotice": "MacのChromeを推奨します。SafariではPremium（高品質）の声が使えません。",
     "accent.label": "アクセント：",
     "accent.us": "米",
     "accent.uk": "英",
@@ -1376,13 +1378,26 @@ function nextSkitLine() {
 }
 
 function finishSkit() {
-  // 聞き終えた場合は一覧まで戻さず準備画面へ（そのまま練習に入れるように・10-20節）
+  // 聞き終えた場合は画面を切り替えない。会話全体を見直してから、
+  // 自分で [終了] を押して準備画面へ戻ってもらう（10-25節）
   if (state.skitListen) {
-    backToPrepareView();
-    setStatus("skit.done");
+    finishListening();
     return;
   }
   leaveSkit();
+  setStatus("skit.done");
+}
+
+// 通しで聞き終えたときの後始末（10-25節）。画面はそのまま残す
+function finishListening() {
+  state.skitPaused = false;
+  clearListenGap();
+  // 最後の台詞を指したままにする。画面に出ている内容と state を合わせるため
+  // （[▶お手本] で最後の台詞をもう一度聞ける）
+  state.skitLineIndex = Math.max(0, state.skit.lines.length - 1);
+  // 鳴らすものがもう無いので、進む・止めるの操作は引っ込める
+  el.btnPauseListening.classList.add("hidden");
+  el.btnNextLine.classList.add("hidden");
   setStatus("skit.done");
 }
 

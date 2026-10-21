@@ -20,6 +20,11 @@
     </div>
   </header>
 
+  <!-- ブラウザの推奨（2026-10-21・spec.txt 10-24節・UI_function.txt 8-11節）。
+       SafariはPremium（高品質）の声をWebページへ渡さないため、
+       声の選択肢が減ることが画面からは分からない。タブの外側に置いて常に見せる -->
+  <p class="browser-notice" data-i18n="app.browserNotice">Use Chrome on a Mac. Safari does not provide the high-quality (Premium) voices.</p>
+
   <!-- スキットタブでは出さない（声はアクセントではなく直接選ぶ・8-4節） -->
   <section class="accent-select hidden" id="accent-select">
     <span class="label" data-i18n="accent.label">Accent:</span>
