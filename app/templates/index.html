@@ -88,8 +88,18 @@
           <label><input type="radio" name="skit-mode" value="all"> <span data-i18n="skit.allLines">All lines</span></label>
           <!-- 話者が1人の会話では「役を選ぶ」を押せないようにする（相手役がいないため） -->
           <label id="skit-mode-role"><input type="radio" name="skit-mode" value="role"> <span data-i18n="skit.oneRole">One role</span></label>
-          <!-- 通しで聞く（2026-10-21・spec.txt 10-20節）。全台詞をお手本の声で順に再生する -->
-          <label><input type="radio" name="skit-mode" value="listen"> <span data-i18n="skit.listenThrough">Listen through</span></label>
+          <!-- 聞く（2026-10-21・spec.txt 10-20節）。お手本の声で再生する。
+               1台詞ずつ止まるか通しで流すかは、下の「進め方」で決まる（12-2節） -->
+          <label><input type="radio" name="skit-mode" value="listen"> <span data-i18n="skit.listen">Listen</span></label>
+        </div>
+        <!-- 進め方（2026-11-02・spec.txt 12節）。練習方法と違い、こちらは既定値を持つ。
+             従来の動き（1台詞ずつ止まる）が既定なので、選ばなければ今までどおりになる -->
+        <div class="skit-pace">
+          <span class="label" data-i18n="skit.paceLabel">Pace:</span>
+          <select id="skit-pace">
+            <option value="one" data-i18n="skit.paceOneLine">One line at a time</option>
+            <option value="straight" data-i18n="skit.paceStraight">Straight through</option>
+          </select>
         </div>
         <!-- 役の選択は「役を選ぶ」のときだけ出す -->
         <div id="skit-role-pick" class="hidden">
@@ -109,14 +119,25 @@
         <div class="skit-practice-header">
           <span id="skit-title" class="skit-title"></span>
           <span id="skit-progress" class="skit-progress"></span>
-          <!-- 通しで聞いているときだけ出す（8-10節）。
-               一時停止は「止めた台詞の最初から」鳴らし直す、停止は準備画面へ戻る -->
+          <!-- [一時停止] は通しで聞いているときだけ（8-10節）。
+               [終了] は通しで聞くときと通しで練習するときに出す（8-12節）。
+               一時停止は「止めた台詞の最初から」鳴らし直す、終了は準備画面へ戻る -->
           <button id="btn-pause-listening" class="hidden" data-i18n="btn.pauseListening">Pause</button>
           <button id="btn-stop-listening" class="hidden" data-i18n="btn.stopListening">End</button>
           <button id="btn-back-to-list" data-i18n="btn.backToList">Back to list</button>
         </div>
         <!-- 済んだ台詞。会話の流れの中で練習する目的なので、前の台詞を残す（8-3節） -->
         <ol id="skit-done-lines" class="skit-done-lines"></ol>
+      </div>
+
+      <!-- 通しで練習したあとの結果一覧（2026-11-02・spec.txt 12-4節・UI_function.txt 8-12節）。
+           通しの間は判定を出さず、ここでまとめて見せる -->
+      <div id="skit-results-view" class="hidden">
+        <p class="skit-results-title" data-i18n="skit.resultsTitle">Your lines</p>
+        <ol id="skit-results" class="skit-results"></ol>
+        <div class="skit-results-buttons">
+          <button id="btn-finish-results" data-i18n="btn.finish">Finish</button>
+        </div>
       </div>
     </div>
   </section>

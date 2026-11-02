@@ -24,6 +24,22 @@ const state = {
   skitListen: false,
   // 通しで聞いている最中の一時停止（spec.txt 10-21節）。再開は止めた台詞の最初から
   skitPaused: false,
+  // 進め方（spec.txt 12節）。"one"＝1台詞ずつ止まる（従来）、"straight"＝通し
+  skitPace: "one",
+  // 通しで練習したときの判定結果。{ lineIndex, en, diff } を読んだ順に溜める（12-4節）
+  skitResults: [],
+  // 文字起こし待ちの列。通しでは画面を止めないので、裏で1件ずつ処理する（12-4節）
+  scoreQueue: [],
+  // 列を処理している最中かどうか。Whisperは同時に何件も走らせられないため直列にする
+  scoring: false,
+  // 最後の台詞まで終えて、残りの判定を待っている状態（12-4節）
+  waitingForScores: false,
+  // [スキップ] で録音を捨てるときの目印。finalizeRecording がこれを見て判定へ回さない
+  discardRecording: false,
+  // [終了] を録音中に押したときの目印。その録音を判定へ回してから結果一覧へ移る
+  finishAfterRecording: false,
+  // 通しで録音した件数。判定の進み具合（3/5）を出すのに使う
+  scoreTotal: 0,
 };
 
 // 隣の English_conversation/skit が公開している会話データ（spec.txt 10-1節）。
@@ -77,6 +93,10 @@ const el = {
   btnStopListening: document.getElementById("btn-stop-listening"),
   btnPauseListening: document.getElementById("btn-pause-listening"),
   btnRoleBack: document.getElementById("btn-role-back"),
+  skitPace: document.getElementById("skit-pace"),
+  skitResultsView: document.getElementById("skit-results-view"),
+  skitResults: document.getElementById("skit-results"),
+  btnFinishResults: document.getElementById("btn-finish-results"),
   voiceSelect: document.getElementById("voice-select"),
   accentSelect: document.getElementById("accent-select"),
   voiceA: document.getElementById("voice-a"),
@@ -132,7 +152,15 @@ const I18N = {
     "skit.practiceLabel": "Practice:",
     "skit.allLines": "All lines",
     "skit.oneRole": "One role",
-    "skit.listenThrough": "Listen through",
+    "skit.listen": "Listen",
+    "skit.paceLabel": "Pace:",
+    "skit.paceOneLine": "One line at a time",
+    "skit.paceStraight": "Straight through",
+    "skit.resultsTitle": "Your lines",
+    "skit.lineNo": "Line {n}",
+    "skit.noResults": "No recordings to score.",
+    "btn.finish": "Finish",
+    "status.scoringQueue": "Scoring... {done}/{total}",
     "skit.chooseRole": "Which role do you want to practice?",
     "btn.startSkit": "Start",
     "btn.startListening": "Listen",
@@ -191,7 +219,15 @@ const I18N = {
     "skit.practiceLabel": "練習方法：",
     "skit.allLines": "全台詞",
     "skit.oneRole": "役を選ぶ",
-    "skit.listenThrough": "通しで聞く",
+    "skit.listen": "聞く",
+    "skit.paceLabel": "進め方：",
+    "skit.paceOneLine": "1文ずつ行う",
+    "skit.paceStraight": "通しで行う",
+    "skit.resultsTitle": "あなたが読んだ台詞",
+    "skit.lineNo": "{n}行目",
+    "skit.noResults": "判定する録音がありません",
+    "btn.finish": "終了",
+    "status.scoringQueue": "判定中... {done}/{total}",
     "skit.chooseRole": "どちらの役で練習しますか？",
     "btn.startSkit": "練習を始める",
     "btn.startListening": "聞く",
@@ -844,11 +880,80 @@ function finalizeRecording() {
   });
   state.mediaRecorder = null;
 
+  // [スキップ] で捨てると決めた録音は判定へ回さない（spec.txt 12-5節）。
+  // 録音済みの再生用URLも差し替えない（捨てた録音を聞けても意味がないため）
+  if (state.discardRecording) {
+    state.discardRecording = false;
+    setControlsEnabled(true);
+    return;
+  }
+
   // 前回の録音のURLを解放してから差し替える
   if (state.myAudioUrl) URL.revokeObjectURL(state.myAudioUrl);
   state.myAudioUrl = URL.createObjectURL(blob);
 
+  // 通しでは判定を待たずに次の台詞へ進み、録音は裏の列へ回す（spec.txt 12-4節）
+  if (isStraightPractice()) {
+    enqueueScore(blob, state.skitLineIndex);
+    setControlsEnabled(true);
+    // [終了] を録音中に押していた場合は、その録音まで判定に入れてから結果一覧へ
+    if (state.finishAfterRecording) {
+      state.finishAfterRecording = false;
+      finishStraightPractice();
+      return;
+    }
+    nextSkitLine();
+    return;
+  }
+
   transcribeAndShow(blob);
+}
+
+// ===== 通し練習の判定（spec.txt 12-4節） =====
+// 画面は止めず、録音を列に入れて裏で1件ずつ文字起こし・判定する。
+// **1件ずつ直列に処理する。** ブラウザ内のWhisperは同時に何件も走らせられない
+
+function enqueueScore(blob, lineIndex) {
+  const line = state.skit && state.skit.lines[lineIndex];
+  if (!line) return;
+  state.scoreQueue.push({ blob: blob, lineIndex: lineIndex, en: line.en });
+  state.scoreTotal += 1;
+  runScoreQueue();
+}
+
+async function runScoreQueue() {
+  if (state.scoring) return;
+  state.scoring = true;
+
+  while (state.scoreQueue.length) {
+    const item = state.scoreQueue.shift();
+    let diff = null;
+    try {
+      if (window.Transcriber && typeof buildDiff === "function") {
+        // モデルが未読み込みならここで待つ（練習中は進捗を出さない。画面を邪魔しないため）
+        await window.Transcriber.ensureModel();
+        const transcript = await window.Transcriber.transcribe(item.blob);
+        diff = buildDiff(item.en, transcript);
+      }
+    } catch (err) {
+      // 1件失敗しても残りは続ける。結果一覧では「判定に失敗しました」と出す
+      diff = null;
+    }
+    state.skitResults.push({ lineIndex: item.lineIndex, en: item.en, diff: diff });
+    if (state.waitingForScores) showScoringProgress();
+  }
+
+  state.scoring = false;
+  // 最後の台詞まで終えて待っている間に列が空いたら、そこで結果を見せる
+  if (state.waitingForScores) showResultsView();
+}
+
+// 「判定中… 3/5」。最後の台詞を終えた時点で処理が残っているときだけ出す（12-4節）
+function showScoringProgress() {
+  setStatus("status.scoringQueue", {
+    done: state.skitResults.length,
+    total: state.scoreTotal,
+  });
 }
 
 async function startRecording() {
@@ -885,6 +990,12 @@ async function startRecording() {
   updateRecordButton();
   el.btnRecord.classList.add("recording");
   el.btnRecord.disabled = false;
+  // 通しでは録音中でも [スキップ] と [終了] を押せるようにする（spec.txt 12-5節）。
+  // 直前の setControlsEnabled(false) が一度無効にしているので、ここで戻す
+  if (isStraightPractice()) {
+    el.btnNextLine.disabled = false;
+    el.btnStopListening.disabled = false;
+  }
 }
 
 function stopRecording() {
@@ -919,8 +1030,13 @@ el.btnPlayMine.addEventListener("click", () => {
 });
 
 function renderDiff(diff) {
-  el.diffTarget.innerHTML = "";
-  el.diffSaid.innerHTML = "";
+  fillDiff(el.diffTarget, el.diffSaid, diff);
+}
+
+// 差分を2つの要素へ描き込む。結果欄（3-6節）と通し練習の結果一覧（8-12節）で共用する
+function fillDiff(targetEl, saidEl, diff) {
+  targetEl.innerHTML = "";
+  saidEl.innerHTML = "";
 
   diff.forEach((item) => {
     const targetSpan = document.createElement("span");
@@ -950,15 +1066,15 @@ function renderDiff(diff) {
       saidSpan.classList.add("diff-extra");
     }
 
-    el.diffTarget.appendChild(targetSpan);
-    el.diffSaid.appendChild(saidSpan);
+    targetEl.appendChild(targetSpan);
+    saidEl.appendChild(saidSpan);
 
     // （2026-07-20修正）単語spanの間に空白文字が無いと、ブラウザは行全体を
     // 折り返せない1単語とみなし、長い文でアプリの枠をはみ出す。単語の区切りは
     // CSSのmargin-rightで付けているため、幅を増やさない<wbr>（折り返し可能位置）
     // を挟んで改行できるようにする
-    el.diffTarget.appendChild(document.createElement("wbr"));
-    el.diffSaid.appendChild(document.createElement("wbr"));
+    targetEl.appendChild(document.createElement("wbr"));
+    saidEl.appendChild(document.createElement("wbr"));
   });
 }
 
@@ -1058,6 +1174,17 @@ function getSkitMode() {
   return checked ? checked.value : null;
 }
 
+// 通しで「練習」している最中か（spec.txt 12節）。「聞く」は含まない。
+// 自動録音・判定の後回し・出口の違いは、すべてこの条件で分かれる
+function isStraightPractice() {
+  return !!state.skit && !state.skitListen && state.skitPace === "straight";
+}
+
+// 進め方（spec.txt 12節）。練習方法と違い、こちらは常に値がある（既定は1台詞ずつ）
+function getSkitPace() {
+  return el.skitPace.value === "straight" ? "straight" : "one";
+}
+
 function startSkit(slug) {
   const skit = (skitData && skitData.skits || []).find((x) => x.slug === slug);
   if (!skit || !skit.lines.length) return;
@@ -1090,6 +1217,8 @@ function showPrepareView() {
 
   // 練習方法は毎回自分で選ぶ（10-23節）。前の会話での選択は引き継がない
   document.querySelectorAll('input[name="skit-mode"]').forEach((r) => (r.checked = false));
+  // 進め方は既定（1台詞ずつ）へ戻す。練習方法と違って未選択にはしない（12-1節）
+  el.skitPace.value = "one";
 
   // 会話を選び直したら役の選択は1番目に戻す（10-3節）
   renderRoleChoices();
@@ -1154,23 +1283,33 @@ function renderRoleChoices(keepSelection) {
 }
 
 // roleId を渡すと「役を選ぶ」モード、null なら「全台詞」モード。
-// listen を true にすると「通しで聞く」モード（録音も判定もしない・10-20節）
-function beginPractice(roleId, listen) {
+// listen を true にすると「聞く」モード（録音も判定もしない・10-20節）。
+// pace は "one"（1台詞ずつ止まる・従来）か "straight"（通し・spec.txt 12節）
+function beginPractice(roleId, listen, pace) {
   if (!state.skit) return;
   state.skitRole = roleId || null;
   state.skitListen = !!listen;
+  state.skitPace = pace === "straight" ? "straight" : "one";
   state.skitLineIndex = 0;   // 進捗は覚えない。毎回1行目から（10-3節）
+  // 通しで練習したときの判定はここから溜め直す（前回の結果を混ぜない）
+  state.skitResults = [];
+  state.scoreQueue = [];
+  state.waitingForScores = false;
+  state.discardRecording = false;
   el.skitListView.classList.add("hidden");
   el.skitRoleView.classList.add("hidden");
+  el.skitResultsView.classList.add("hidden");
   el.skitPracticeView.classList.remove("hidden");
-  // [一時停止]・[停止] は聞いているときだけ出す
+  // [一時停止] は聞いているときだけ。練習の通しには付けない（12-5節）
   state.skitPaused = false;
   clearListenGap();
   setPauseButton(false);
   el.btnPauseListening.classList.toggle("hidden", !state.skitListen);
-  el.btnStopListening.classList.toggle("hidden", !state.skitListen);
-  // 聞いている間は出口を [終了] 1つにする（10-22節）。練習中は従来どおり [一覧へ] を出す
-  el.btnBackToList.classList.toggle("hidden", state.skitListen);
+  // [終了] は「聞く」と「通しで練習」のときに出す（12-5節）
+  const straightPractice = !state.skitListen && state.skitPace === "straight";
+  el.btnStopListening.classList.toggle("hidden", !state.skitListen && !straightPractice);
+  // 出口を [終了] 1つにする（10-22節）。1台詞ずつの練習だけ従来どおり [一覧へ] を出す
+  el.btnBackToList.classList.toggle("hidden", state.skitListen || straightPractice);
   el.btnNextLine.disabled = false;
   el.skitTitle.textContent = state.skit.title;
   setStatus("");
@@ -1184,6 +1323,8 @@ function backToPrepareView() {
   if (!state.skit) return;
   state.skitListen = false;
   state.skitPaused = false;
+  resetStraightPractice();
+  el.skitResultsView.classList.add("hidden");
   clearListenGap();
   el.btnPauseListening.classList.add("hidden");
   el.btnBackToList.classList.remove("hidden");
@@ -1205,22 +1346,43 @@ function backToPrepareView() {
 el.btnStartSkit.addEventListener("click", () => {
   const mode = getSkitMode();
   if (mode === null) return;   // 押せないようにしてあるが、念のため
-  // 通しで聞く（10-20節）。役は使わず、全台詞を順に再生する
+  const pace = getSkitPace();
+  // 聞く（10-20節）。役は使わず全台詞を再生する。通しか1台詞ずつかは pace で決まる
   if (mode === "listen") {
-    beginPractice(null, true);
+    beginPractice(null, true, pace);
     return;
   }
   // 「全台詞」のときは役を渡さない（役のラジオは残っていても使わない）
   if (mode !== "role") {
-    beginPractice(null);
+    beginPractice(null, false, pace);
     return;
   }
   const chosen = el.skitRoleChoices.querySelector('input[name="skit-role"]:checked');
-  beginPractice(chosen ? chosen.value : null);
+  beginPractice(chosen ? chosen.value : null, false, pace);
 });
 
-// 聞くのをやめる。一覧までは戻さず準備画面へ戻す（そのまま練習に入れるように・10-20節）
-el.btnStopListening.addEventListener("click", backToPrepareView);
+// [終了]。聞いているときは準備画面へ戻し、通しで練習中なら結果一覧を見せる（12-5節）
+el.btnStopListening.addEventListener("click", () => {
+  if (isStraightPractice()) {
+    // 録音の途中なら、**その録音も判定に入れてから**終える。
+    // stop() は非同期なので、続きは finalizeRecording が受け持つ
+    if (state.isRecording) {
+      state.finishAfterRecording = true;
+      stopRecording();
+      return;
+    }
+    finishStraightPractice();
+    return;
+  }
+  // 聞くのをやめる。一覧までは戻さず準備画面へ戻す（そのまま練習に入れるように・10-20節）
+  backToPrepareView();
+});
+
+// 結果一覧の [終了]。準備画面へ戻す（聞き終えたときと同じ戻り先・8-12節）
+el.btnFinishResults.addEventListener("click", () => {
+  el.skitResultsView.classList.add("hidden");
+  backToPrepareView();
+});
 
 // 一時停止ボタンの文言。data-i18n も書き換える（言語を切り替えても戻らないように）
 function setPauseButton(paused) {
@@ -1287,6 +1449,10 @@ function showSkitLine() {
   // 判定が出たら文言を「次の台詞へ」に切り替える（checkRecording 側）
   setNextLineButton("skip");
   el.btnNextLine.classList.remove("hidden");
+
+  // 通しでは自分の番で録音を自動的に始める（spec.txt 12-3節）。
+  // 押すのは [■録音終了] の1回だけで、会話のテンポを保つのが目的
+  if (isStraightPractice()) startRecording();
 }
 
 // 「通しで聞く」ときに台詞と台詞の間に挟む無音（spec.txt 10-21節）。
@@ -1324,8 +1490,11 @@ function playOtherRoleLine(line) {
       // 「一時停止中」の表示を消してしまわないよう、何もせず抜ける（10-21節）
       if (state.skitPaused) return;
       setStatus("");
-      // 通しで聞くときは、次の台詞までに少し間を置く（10-21節）
       if (state.skitListen) {
+        // 1台詞ずつ聞くときは、鳴り終わっても自動では進まない（spec.txt 12-2節）。
+        // [次へ] はこの関数の最初から出してあるので、それを押して進んでもらう
+        if (state.skitPace !== "straight") return;
+        // 通しで聞くときは、次の台詞までに少し間を置く（10-21節）
         clearListenGap();
         listenGapTimer = setTimeout(() => {
           listenGapTimer = null;
@@ -1368,6 +1537,11 @@ function renderSkitDoneLines() {
 
 function nextSkitLine() {
   if (!state.skit) return;
+  // 通しで録音中に [スキップ] を押されたら、その録音は捨てて先へ進む（spec.txt 12-5節）
+  if (state.isRecording) {
+    state.discardRecording = true;
+    stopRecording();
+  }
   state.skitLineIndex += 1;
   if (state.skitLineIndex >= state.skit.lines.length) {
     finishSkit();
@@ -1384,8 +1558,80 @@ function finishSkit() {
     finishListening();
     return;
   }
+  // 通しで練習したときは、裏の判定が終わるのを待ってから結果一覧を見せる（12-4節）
+  if (isStraightPractice()) {
+    finishStraightPractice();
+    return;
+  }
   leaveSkit();
   setStatus("skit.done");
+}
+
+// 通しの練習を終える（最後まで行った場合と、途中で [終了] を押した場合の両方）。
+// **それまでの判定は捨てない**（spec.txt 12-5節）
+function finishStraightPractice() {
+  state.waitingForScores = true;
+  // 会話は終わったので、出題文・お手本・録音まわりは片付ける
+  clearSentence();
+  el.btnNextLine.classList.add("hidden");
+  el.btnStopListening.classList.add("hidden");
+  // まだ判定が残っていれば、進み具合を出して待つ。
+  // 終わっていれば（または1件も録っていなければ）そのまま一覧を出す
+  if (state.scoring || state.scoreQueue.length) {
+    showScoringProgress();
+    return;
+  }
+  showResultsView();
+}
+
+function showResultsView() {
+  state.waitingForScores = false;
+  setStatus("");
+  renderSkitResults();
+  el.skitPracticeView.classList.add("hidden");
+  el.skitResultsView.classList.remove("hidden");
+}
+
+// 自分が読んだ台詞の判定を、台詞の順に並べる（spec.txt 12-4節・UI_function.txt 8-12節）。
+// 相手役の台詞とスキップした台詞は入らない（録音していないため）
+function renderSkitResults() {
+  el.skitResults.innerHTML = "";
+  // 裏の処理は録音順に終わるが、順序を当てにせず台詞の順に並べ直す
+  const rows = state.skitResults.slice().sort((a, b) => a.lineIndex - b.lineIndex);
+
+  if (!rows.length) {
+    const li = document.createElement("li");
+    li.textContent = t("skit.noResults");
+    el.skitResults.appendChild(li);
+    return;
+  }
+
+  rows.forEach((row) => {
+    const li = document.createElement("li");
+    const no = document.createElement("span");
+    no.className = "result-line-no";
+    no.textContent = tf("skit.lineNo", { n: row.lineIndex + 1 });
+    li.appendChild(no);
+
+    if (!row.diff) {
+      // 文字起こしに失敗した台詞。何が起きたか分かるよう行は残す
+      const failed = document.createElement("span");
+      failed.className = "result-line-diff";
+      failed.textContent = t("status.checkFailed");
+      li.appendChild(failed);
+    } else {
+      // 差分の見せ方は結果欄（3-6節）と同じものを使う
+      const target = document.createElement("span");
+      target.className = "result-line-diff";
+      const said = document.createElement("span");
+      said.className = "result-line-diff";
+      fillDiff(target, said, row.diff);
+      li.appendChild(target);
+      li.appendChild(said);
+    }
+
+    el.skitResults.appendChild(li);
+  });
 }
 
 // 通しで聞き終えたときの後始末（10-25節）。画面はそのまま残す
@@ -1421,6 +1667,8 @@ function leaveSkit() {
   state.skitRole = null;
   state.skitListen = false;
   state.skitPaused = false;
+  resetStraightPractice();
+  el.skitResultsView.classList.add("hidden");
   clearListenGap();
   el.skitPracticeView.classList.add("hidden");
   el.btnStopListening.classList.add("hidden");
@@ -1438,6 +1686,22 @@ function leaveSkit() {
 
   clearSentence();
   setStatus("");
+}
+
+// 通し練習の後始末（spec.txt 12節）。画面を離れるときに呼ぶ。
+// 録音中なら捨てて止める（判定へ回しても見せる先が無いため）
+function resetStraightPractice() {
+  if (state.isRecording) {
+    state.discardRecording = true;
+    stopRecording();
+  }
+  state.skitPace = "one";
+  state.skitResults = [];
+  state.scoreQueue = [];
+  state.scoreTotal = 0;
+  state.waitingForScores = false;
+  state.finishAfterRecording = false;
+  el.skitResults.innerHTML = "";
 }
 
 // スキット用の付加表示を初期状態に戻す。setSentence から毎回呼ぶので、
@@ -1512,6 +1776,11 @@ el.btnBackToList.addEventListener("click", leaveSkit);
 // （data-i18n の一括差し替えでは直せないため）
 function renderSkitUI() {
   if (!skitData) return;
+  // 結果一覧を見ている最中なら、行番号などを今の言語で作り直す（8-12節）
+  if (!el.skitResultsView.classList.contains("hidden")) {
+    renderSkitResults();
+    return;
+  }
   // 役を選んでいる最中なら、役名を今の言語で作り直す（選択は保つ）
   if (!el.skitRoleView.classList.contains("hidden")) {
     renderPrepareTitle();

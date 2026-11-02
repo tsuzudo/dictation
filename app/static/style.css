@@ -187,7 +187,9 @@ button:disabled {
   min-width: 7em;
 }
 
-.diff-row span.word {
+/* 結果一覧（8-12節）でも同じ差分表示を使うので、セレクタをまとめて効かせる */
+.diff-row span.word,
+.result-line-diff span.word {
   margin-right: 6px;
 }
 
@@ -226,6 +228,8 @@ button:disabled {
 #skit-practice-view.hidden,
 #btn-toggle-translation.hidden,
 #btn-next-line.hidden,
+#skit-results-view.hidden,
+#btn-finish-results.hidden,
 .translation-box.hidden {
   display: none;
 }
@@ -292,6 +296,68 @@ button:disabled {
 }
 
 .skit-role-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+/* 進め方のプルダウン（2026-11-02・8-12節） */
+.skit-pace {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.skit-pace select {
+  padding: 4px 8px;
+  border: 1px solid #d2d2d7;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 14px;
+}
+
+/* 通しで練習したあとの結果一覧（2026-11-02・8-12節） */
+.skit-results-title {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.skit-results {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+}
+
+.skit-results li {
+  padding: 10px 0;
+  border-top: 1px solid #f0f0f2;
+}
+
+.skit-results li:first-child {
+  border-top: none;
+}
+
+/* 何行目の台詞かを添える（結果だけ見ても場所が分かるように） */
+.result-line-no {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: #86868b;
+}
+
+/* 差分の色分けは結果欄（3-6節）と同じ .word / .diff-* をそのまま使う */
+.result-line-diff {
+  display: block;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.result-line-diff + .result-line-diff {
+  margin-top: 2px;
+}
+
+.skit-results-buttons {
   display: flex;
   gap: 12px;
 }
