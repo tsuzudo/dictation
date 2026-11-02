@@ -1,6 +1,6 @@
 # STATUS
 
-最終更新：2026-11-02（スキットを通しで練習できるようにした）
+最終更新：2026-11-02（GCPプロジェクトを削除し、Google Cloudとの関係を完全に終了した）
 
 このファイルは「いま何がどうなっているか」を最短で把握するためのもの。
 経緯や判断の理由は `spec.txt` に日付付きで記録してあるので、深掘りはそちらを見ること。
@@ -22,9 +22,12 @@
 - 音声は端末外に出ない
 - **タイトル下にブラウザの推奨を出している（2026-10-21追加）。** SafariはPremium
   （高品質）の声をWebページへ渡さないため、MacのChromeを勧める（spec.txt 10-24節）
-- **Cloud Run版はコードごと削除した（2026-11-02・spec.txt 11節）。** サービスは
-  2026-08-18に停止済みで、静的版で2か月半問題が出なかったため。`app.py`が持っていた
-  判定ロジックは`tests/reference_scoring.py`として残してある（下の「触る前に」4番）
+- **Google Cloudとの関係は完全に終了した（2026-11-02・spec.txt 11・11-6節）。**
+  コード5つを削除し、**GCPプロジェクト`dictation-503003`そのものも削除した**。
+  Artifact Registry（Dockerイメージの保管庫）に1,328MBが残っていて無料枠0.5GBを超え、
+  **使っていなくても保管料が発生し続ける状態**だったため。`app.py`が持っていた判定
+  ロジックは`tests/reference_scoring.py`として残してある（下の「触る前に」4番）。
+  **プロジェクトIDは二度と使えない**（30日以内なら`undelete`で戻せる）
 - **スキット発音練習（2026-10-12 完成）。** 隣の`English_conversation/skit`の英会話14本を
   出題文として使う機能。一覧から選んで上から順に練習でき、役を選べば相手役はお手本が
   自動で鳴る。話者ごとに声を選べ、読み替え（`Ta`→`Tah`）も効く（下の節を見ること）
@@ -215,8 +218,9 @@ iOSではEU以外でWebKit以外のエンジンが認められていない
    まず本人の実機で切り分けが要る：①消音スイッチを解除したら鳴るか
    ②`[▶お手本]`を一度押した後なら自動でも鳴るか
 
-（**Cloud Run残置物の削除は2026-11-02に完了**。判定ロジックのPython版だけ
-`tests/reference_scoring.py`へ移し、2265ケースの一致を削除の前後で確認した・spec.txt 11節）
+（**Cloud Run関連は2026-11-02にすべて完了**。コード5つを削除し、判定ロジックのPython版だけ
+`tests/reference_scoring.py`へ移して2265ケースの一致を削除の前後で確認した（spec.txt 11節）。
+さらに**GCPプロジェクトごと削除して課金源を断った**（spec.txt 11-6節）。もう残作業は無い）
 
 ## 保留・未解決
 
@@ -242,13 +246,11 @@ python3 tests/serve.py 8765 <配信ルート>      # 静的配信の確認用サ
 ブラウザでの動作確認は `tests/browser_check.html`。モデル読み込み・文字起こし・判定に加えて、
 実行デバイスとライブラリのバージョンも検査する。テスト音声の作り方はページ内に記載。
 
-Cloud Runを再開したくなった場合（**コードは2026-11-02に削除済み**なので復元から）：
-
-```bash
-git checkout b48d514 -- app/app.py Dockerfile deploy.sh run.sh requirements.txt
-gcloud run services add-iam-policy-binding dictation --region us-central1 \
-  --member="allUsers" --role="roles/run.invoker"
-```
+**Cloud Runの経路はもう存在しない**（2026-11-02・spec.txt 11・11-6節）。コードを
+`git checkout b48d514 -- app/app.py Dockerfile deploy.sh run.sh requirements.txt`で
+復元することはできるが、**GCPプロジェクトごと消したのでデプロイ先が無い。**
+再開するならプロジェクトの新規作成・課金設定・API有効化からやり直すことになる
+（旧ID`dictation-503003`は再利用できない）。
 
 ## ドキュメント
 

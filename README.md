@@ -100,6 +100,7 @@
 
 > かつての Cloud Run 版（`app.py`）は faster-whisper と difflib をサーバー側で使う構成でしたが、
 > **サービスは2026-08-18に停止し、コードも2026-11-02に削除しました**（spec.txt 11節）。
+> 同日 GCPプロジェクトごと削除したので、**現在このアプリはサーバーを一切持ちません**。
 
 ## ローカルでの実行
 
@@ -140,12 +141,14 @@ python3 tests/serve.py 8765 <配信ルート>   # 静的配信の確認用サー
 **パスは必ず相対で書くこと。** GitHub Pages はサイトを `/dictation/` 配下に置くため、
 `/static/script.js` のような絶対パスはアプリの外を指して 404 になります。
 
-## デプロイ（Google Cloud Run・停止済み）
+## デプロイ（Google Cloud Run・**終了しました**）
 
-> **サービスは2026-08-18に非公開化し、関連コードは2026-11-02に削除しました**（spec.txt 11節）。
-> 削除したのは `app/app.py`・`Dockerfile`・`deploy.sh`・`run.sh`・`requirements.txt` です。
-> 構成とデプロイ手順の記録は spec.txt 5-7〜5-10節に残してあります。
-> 復元する場合は `git checkout b48d514 -- app/app.py Dockerfile deploy.sh run.sh requirements.txt`。
+> **この経路はもう存在しません。** 2026-08-18にサービスを非公開化し、2026-11-02に関連コード
+> （`app/app.py`・`Dockerfile`・`deploy.sh`・`run.sh`・`requirements.txt`）を削除し、
+> **同日GCPプロジェクトそのものを削除しました**（spec.txt 11・11-6節）。
+> コードは `git checkout b48d514 -- app/app.py Dockerfile deploy.sh run.sh requirements.txt`
+> で復元できますが、**デプロイ先が無いため再開にはGCPプロジェクトの新規作成が必要です。**
+> 当時の構成とデプロイ手順の記録は spec.txt 5-7〜5-10節に残してあります。
 
 ## ライセンス
 
@@ -158,7 +161,7 @@ python3 tests/serve.py 8765 <配信ルート>   # 静的配信の確認用サー
 |---|---|---|
 | [Transformers.js](https://github.com/huggingface/transformers.js) | Apache-2.0 | CDNから読み込み |
 | [Whisper tiny.en](https://huggingface.co/Xenova/whisper-tiny.en) | Apache-2.0 | 実行時に利用者の端末へダウンロード |
-| Flask / gunicorn / faster-whisper | BSD-3-Clause / MIT / MIT | Cloud Run版（現在は停止中）で使用 |
+| Flask / gunicorn / faster-whisper | BSD-3-Clause / MIT / MIT | かつてのCloud Run版で使用（2026-11-02に終了） |
 
 ## ドキュメント
 

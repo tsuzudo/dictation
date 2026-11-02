@@ -78,21 +78,22 @@
   「WebGPUが使える環境では正常に見える」ため、変更する場合は**WebGPUを無効にした状態で
   文字起こし結果まで**実機確認すること（`tests/browser_check.html`が両方を検査する）
 
-## Deployment（Google Cloud Run・**停止済み。コードも削除済み**）
+## Deployment（Google Cloud Run・**完全に終了。GCPプロジェクトごと削除済み**）
 
-> **サービスは2026-08-18に非公開化し（spec.txt 9-5節）、コードは2026-11-02に削除した
-> （spec.txt 11節）。** 現在この経路は存在しない。
+> **この経路はもう存在しない。** 2026-08-18にサービスを非公開化し（spec.txt 9-5節）、
+> 2026-11-02にコードを削除し（spec.txt 11節）、**同日GCPプロジェクト
+> `dictation-503003`そのものを削除した（spec.txt 11-6節）。**
 >
-> - 削除したもの：`app/app.py`・`Dockerfile`・`deploy.sh`・`run.sh`・`requirements.txt`
-> - 戻したい場合：`git checkout b48d514 -- app/app.py Dockerfile deploy.sh run.sh requirements.txt`
->   でコードを復元し、下のコマンドでIAMを戻す
->   ```
->   gcloud run services add-iam-policy-binding dictation --region us-central1 \
->     --member="allUsers" --role="roles/run.invoker"
->   ```
-> - GCP側の記録：プロジェクト`dictation-503003` / サービス名`dictation` /
->   リージョン`us-central1`（**無料枠の対象は`us-central1`・`us-east1`・`us-west1`のみ**）。
->   詳しい構成とデプロイ手順はspec.txt 5-7〜5-10節に残してある
+> - 削除したコード：`app/app.py`・`Dockerfile`・`deploy.sh`・`run.sh`・`requirements.txt`
+>   （`git checkout b48d514 -- …` で復元はできる）
+> - **ただしコードを戻してもデプロイ先が無い。** プロジェクトを消したので、再開するなら
+>   GCPプロジェクトの新規作成・課金設定・API有効化からやり直すことになる
+> - **旧プロジェクトID`dictation-503003`は二度と使えない**（GCPはIDの再利用を認めない）。
+>   削除から30日以内に限り`gcloud projects undelete dictation-503003`で戻せる
+> - 削除の理由：Artifact Registry（Dockerイメージの保管庫）に1,328MBが残っており、
+>   無料枠の月0.5GBを超えて**使っていなくても保管料が発生し続ける状態**だったため
+> - 当時の構成とデプロイ手順はspec.txt 5-7〜5-10節に残してあるが、**記載のプロジェクトID・
+>   サービス名・リージョンはすでに実体を持たない記録である**
 
 ### 課金の前提が変わっていた場合のルール（重要・ホスティング先を問わず適用）
 料金・無料枠・提供状況が記録と違っていた場合、**黙って別のリージョン・別のサービス・
