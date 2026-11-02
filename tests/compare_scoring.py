@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """判定ロジックのPython版とJavaScript版の出力を突き合わせる（spec.txt 9-2節）。
 
-静的ホスティングへの移行で app/app.py の判定ロジックを app/static/scoring.js へ
-移植した。移植ミスが最大のリスクのため、同じ入力に対して両者が完全に同じ出力を
-返すことを機械的に確認する。
+静的ホスティングへの移行で判定ロジックを app/static/scoring.js へ移植した。
+移植ミスが最大のリスクのため、同じ入力に対して両者が完全に同じ出力を
+返すことを機械的に確認する。Python版（参照実装）は tests/reference_scoring.py。
 
 実行:  python3 tests/compare_scoring.py
 
@@ -12,6 +12,7 @@ Node.jsは開発環境に導入しない方針のため（Python環境と同じ�
 jscはSafariと同じエンジンなので、実際にブラウザで動く条件に近い。
 """
 
+import importlib.util
 import json
 import random
 import re
@@ -20,7 +21,8 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-APP_PY = REPO / "app" / "app.py"
+# 2026-11-02：Cloud Run版 app.py を削除し、判定ロジックのPython版をここへ移した
+REFERENCE_PY = REPO / "tests" / "reference_scoring.py"
 SCORING_JS = REPO / "app" / "static" / "scoring.js"
 # 2026-08-18の静的化（コミット5160122）で app/static/ へ移した。パスの直し忘れで
 # このテストは起動すらできない状態だった（2026-10-13に気づいて修正）
@@ -29,26 +31,16 @@ JSC = Path("/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Helpe
 
 
 def load_python_logic():
-    """app.pyから判定ロジックだけを取り出して読み込む。
+    """判定ロジックのPython版（参照実装）を読み込む。
 
-    そのままimportするとWhisperモデル（数百MB）の読み込みが走るため、
-    ルート定義より前の部分から、Whisper・Flask関連の行を除いて実行する。
+    2026-11-02までは app.py からロジック部分だけを抜き出して実行していた
+    （Flask・Whisperを巻き込まないため）。app.py の削除に伴いロジックを
+    tests/reference_scoring.py へ移したので、そのまま読み込むだけで済む。
     """
-    src = APP_PY.read_text(encoding="utf-8")
-    head = src.split('@app.route("/")')[0]
-    drop_prefixes = (
-        "from faster_whisper import",
-        "from flask import",
-        "whisper_model = ",
-        "app = Flask",
-        "print(",
-    )
-    lines = [ln for ln in head.splitlines()
-             if not ln.startswith(drop_prefixes)]
-    # APP_DIR = Path(__file__)... があるため __file__ を渡しておく
-    module = {"__name__": "dictation_logic", "__file__": str(APP_PY)}
-    exec(compile("\n".join(lines), str(APP_PY), "exec"), module)
-    return module
+    spec = importlib.util.spec_from_file_location("reference_scoring", REFERENCE_PY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return vars(module)
 
 
 def make_cases():

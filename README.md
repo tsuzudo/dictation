@@ -98,8 +98,8 @@
 判定時は表記ゆれを許容します（大文字小文字・句読点、`ten` と `10` のような数字表記、
 `kg` と `kilogram` のような単位表記）。
 
-> Cloud Run 版（`app.py`）は faster-whisper と difflib をサーバー側で使う構成でしたが、
-> **現在は停止しています**（戻り先として残してあります。下の「デプロイ（Google Cloud Run）」節）。
+> かつての Cloud Run 版（`app.py`）は faster-whisper と difflib をサーバー側で使う構成でしたが、
+> **サービスは2026-08-18に停止し、コードも2026-11-02に削除しました**（spec.txt 11節）。
 
 ## ローカルでの実行
 
@@ -112,8 +112,9 @@ python3 tests/serve.py 8099 _site    # http://localhost:8099 で配信する
 
 `app/` を変更したら、**`build_site.sh` を流し直してください**（`_site/` は古いまま残ります）。
 
-判定ロジックは Python 版（`app/app.py`）と JavaScript 版（`app/static/scoring.js`）の
-両方にあります。**どちらかを変えたら必ず一致を確認してください。**
+判定ロジックは JavaScript 版（`app/static/scoring.js`）が本番で動き、
+Python 版（`tests/reference_scoring.py`）を答え合わせの相手として持っています。
+**どちらかを変えたら必ず一致を確認してください。**
 
 ```bash
 python3 tests/compare_scoring.py     # 両者の出力が全ケースで一致するか確かめる
@@ -121,22 +122,6 @@ python3 tests/compare_scoring.py     # 両者の出力が全ケースで一致�
 
 ブラウザでの動作確認用に `tests/browser_check.html` があります（モデルの読み込み・
 文字起こし・判定に加えて、実行デバイスとライブラリのバージョンも検査します）。
-
-### Flask 版をローカルで動かす場合（Cloud Run 版・停止中）
-
-```bash
-pip install -r requirements.txt
-./run.sh
-```
-
-`./run.sh` は Flask サーバーを起動し、Chrome でアプリを開きます（既定は http://127.0.0.1:5001 ）。
-**この構成は現在の公開先では使っていません。** 下記の環境変数も Flask 版にだけ効きます。
-
-| 変数 | 既定値 | 説明 |
-|---|---|---|
-| `PORT` | `5001`（コンテナでは `8080`） | 待ち受けポート |
-| `DICTATION_DEBUG` | （無効） | `1` で Flask のデバッグモードを有効化。**公開環境では絶対に有効にしないこと** |
-| `DICTATION_WHISPER_MODEL` | `base` | Whisper のモデルサイズ |
 
 ## デプロイ（GitHub Pages・現行の公開先）
 
@@ -155,37 +140,12 @@ python3 tests/serve.py 8765 <配信ルート>   # 静的配信の確認用サー
 **パスは必ず相対で書くこと。** GitHub Pages はサイトを `/dictation/` 配下に置くため、
 `/static/script.js` のような絶対パスはアプリの外を指して 404 になります。
 
-## デプロイ（Google Cloud Run）
+## デプロイ（Google Cloud Run・停止済み）
 
-> 静的版（GitHub Pages）へ移行後も、戻り先として残しています。
-> push しても自動更新はされません。`./deploy.sh` を実行したときだけ反映されます。
-
-
-`Dockerfile` を使ってコンテナとして動かします。ローカルの `./run.sh` とは独立しています。
-
-```bash
-./deploy.sh
-```
-
-`./deploy.sh` は「gcloud の設定確認 → デプロイ → 公開URLへの疎通確認」を順に行います。
-最後の確認では、デプロイ自体は成功してもアプリが 500 を返している状態を検出するため、
-トップページに加えて出題 API も叩きます。
-
-実行しているデプロイコマンドは以下です（引数を変える場合は `deploy.sh` と揃えること）。
-
-```bash
-gcloud run deploy dictation \
-  --source . \
-  --region us-central1 \
-  --memory 2Gi \
-  --cpu 2 \
-  --timeout 300 \
-  --allow-unauthenticated
-```
-
-- リージョンは無料枠の対象（`us-central1` / `us-east1` / `us-west1`）から選びます
-- アクセスが無い間はインスタンスが停止するため、久しぶりの初回アクセスは
-  モデル読み込みで十数秒かかります（コールドスタート）
+> **サービスは2026-08-18に非公開化し、関連コードは2026-11-02に削除しました**（spec.txt 11節）。
+> 削除したのは `app/app.py`・`Dockerfile`・`deploy.sh`・`run.sh`・`requirements.txt` です。
+> 構成とデプロイ手順の記録は spec.txt 5-7〜5-10節に残してあります。
+> 復元する場合は `git checkout b48d514 -- app/app.py Dockerfile deploy.sh run.sh requirements.txt`。
 
 ## ライセンス
 

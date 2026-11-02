@@ -1,6 +1,6 @@
 # STATUS
 
-最終更新：2026-10-21（Mac側の修正をひと通り完了）
+最終更新：2026-11-02（Cloud Run残置物を削除）
 
 このファイルは「いま何がどうなっているか」を最短で把握するためのもの。
 経緯や判断の理由は `spec.txt` に日付付きで記録してあるので、深掘りはそちらを見ること。
@@ -22,7 +22,9 @@
 - 音声は端末外に出ない
 - **タイトル下にブラウザの推奨を出している（2026-10-21追加）。** SafariはPremium
   （高品質）の声をWebページへ渡さないため、MacのChromeを勧める（spec.txt 10-24節）
-- Cloud Run版は**停止済み**（公開URLは403）。コードは残してあるが、動いてはいない
+- **Cloud Run版はコードごと削除した（2026-11-02・spec.txt 11節）。** サービスは
+  2026-08-18に停止済みで、静的版で2か月半問題が出なかったため。`app.py`が持っていた
+  判定ロジックは`tests/reference_scoring.py`として残してある（下の「触る前に」4番）
 - **スキット発音練習（2026-10-12 完成）。** 隣の`English_conversation/skit`の英会話14本を
   出題文として使う機能。一覧から選んで上から順に練習でき、役を選べば相手役はお手本が
   自動で鳴る。話者ごとに声を選べ、読み替え（`Ta`→`Tah`）も効く（下の節を見ること）
@@ -57,8 +59,10 @@
 2. **パスは相対で書くこと。** GitHub Pagesはサイトを `/dictation/` 配下に置くため、
    `/static/...` と絶対で書くと404になる（spec.txt 9-3節）
 3. **`app/` が唯一の正。** 公開用のコピーは持たない。`build_site.sh` が `_site/` を組み立てる
-4. **`app.py` と `app/static/scoring.js` の両方に判定ロジックがある。** 片方を直したら
-   `python3 tests/compare_scoring.py` で出力が一致することを必ず確認する
+4. **判定ロジックは2か所にある。** 本番で動くのは`app/static/scoring.js`（JavaScript版）で、
+   `tests/reference_scoring.py`（Python版）は答え合わせ専用の参照実装。片方を直したら
+   もう片方も直し、`python3 tests/compare_scoring.py` で2265ケースの一致を必ず確認する。
+   **2026-11-02までPython版は`app/app.py`だった**（Cloud Run版の削除に伴い移動・spec.txt 11節）
 5. **このCSSには汎用の`.hidden`が無い。** 隠す指定は`#要素名.hidden { display: none; }`と
    要素ごとに書く作り（`app/static/style.css`の該当箇所にコメントあり）。JSで`hidden`
    クラスを付けただけでは**画面から消えない**。2026-10-12に実際に踏んで、画面を見て
@@ -108,7 +112,7 @@
 - **`skits.json`のURLだけは絶対パスで書く。** 別サイトのデータなので相対では指せない
   （`spec.txt` 10-1節）。**それ以外のパスは従来どおり相対のまま**にすること
 - **10分キャッシュがある。** skit側で会話を増やしても最大10分はdictationに出ない
-- **判定ロジック（`scoring.js`・`app.py`）は第10章を通して一度も変更していない。**
+- **判定ロジック（`scoring.js`・参照実装）は第10章を通して一度も変更していない。**
   スキットは口語が多い（`G'day`・`No worries`）が、先回りして正規化を足さない方針
 - **`G'day`は声によって読み方が変わる**（2026-10-12調査・spec.txt 10-15節）。
   米の`Samantha`と英の`Daniel`は「ジーデイ」とアルファベット読みし、豪の声
@@ -188,14 +192,13 @@ iOSではEU以外でWebKit以外のエンジンが認められていない
 1. **iPhoneで相手役の自動再生が鳴らない**（本命・下の「実機で分かった症状」節）。
    まず本人の実機で切り分けてもらう必要がある：①消音スイッチを解除したら鳴るか
    ②`[▶お手本]`を一度押した後なら自動でも鳴るか。結果しだいで対策を選ぶ
-2. **Cloud Run残置物の削除判断**（`app.py`・`Dockerfile`・`deploy.sh`・`run.sh`・
-   `requirements.txt`）。静的版で問題が出ていないので消してよいか、ユーザー判断待ち
-3. 新しい要望があればそこから
+2. 新しい要望があればそこから
+
+（**Cloud Run残置物の削除は2026-11-02に完了**。判定ロジックのPython版だけ
+`tests/reference_scoring.py`へ移し、2265ケースの一致を削除の前後で確認した・spec.txt 11節）
 
 ## 保留・未解決
 
-- **`app.py` / `Dockerfile` / `deploy.sh` の削除**：Cloud Run停止後も残置中。
-  しばらく静的版を使って問題が無ければ削除する方針（ユーザー判断待ち）
 - **複合語の分かち書き揺れ**：`seashore` を Whisper が `sea shore` と2語に分けて不一致になる。
   サーバー側のbaseモデルでも同じ結果のため移行による劣化ではない。正規化での対応は
   スコープ外と判断済み（spec.txt 9-2節）
@@ -215,9 +218,10 @@ python3 tests/serve.py 8765 <配信ルート>      # 静的配信の確認用サ
 ブラウザでの動作確認は `tests/browser_check.html`。モデル読み込み・文字起こし・判定に加えて、
 実行デバイスとライブラリのバージョンも検査する。テスト音声の作り方はページ内に記載。
 
-Cloud Runを再開したくなった場合：
+Cloud Runを再開したくなった場合（**コードは2026-11-02に削除済み**なので復元から）：
 
 ```bash
+git checkout b48d514 -- app/app.py Dockerfile deploy.sh run.sh requirements.txt
 gcloud run services add-iam-policy-binding dictation --region us-central1 \
   --member="allUsers" --role="roles/run.invoker"
 ```

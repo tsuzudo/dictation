@@ -32,8 +32,10 @@
 （Web Speech API）をすべてブラウザで行い、サーバーは持たない。
 
 - `app/templates/index.html`：画面。`app/static/script.js`：全体の制御と日英の文言辞書
-- `app/static/scoring.js`：判定ロジック（`app.py`からの移植。**両方を直したら
-  `python3 tests/compare_scoring.py` で一致を確認する**）
+- `app/static/scoring.js`：判定ロジック（**本番で動くのはこちら**）。
+  `tests/reference_scoring.py`は答え合わせ用のPython版（参照実装）。
+  **片方を直したらもう片方も直し、`python3 tests/compare_scoring.py` で
+  一致を確認する**（spec.txt 11-2節）
 - `app/static/sentences.json`：初級・中級・上級のプリセット出題文（ブラウザが`fetch`する）
 - `app/static/transcriber.js`：Transformers.jsの読み込みと文字起こし
 - 米・英・豪のアクセント切り替えに対応（お手本の声を切り替えるのみ。判定ロジックは共通）。
@@ -47,9 +49,12 @@
 ./build_site.sh && python3 tests/serve.py 8099 _site
 ```
 
-### 残置物（現在は使っていない）
+### 削除済み（2026-11-02）
 - `app/app.py`・`Dockerfile`・`deploy.sh`・`run.sh`・`requirements.txt`：Cloud Run時代の
-  Flask版。サービスは2026-08-18に停止済み（下の節）。削除するかは保留中
+  Flask版。サービス停止（2026-08-18）から2か月半、静的版で問題が出なかったため削除した
+  （spec.txt 11節）。**`app.py`が持っていた判定ロジックは`tests/reference_scoring.py`
+  として残してある**（JavaScript版の答え合わせ相手として必要なため）
+- 戻したい場合は`git checkout b48d514 -- app/app.py Dockerfile deploy.sh run.sh requirements.txt`
 
 ## Deployment（GitHub Pages・現行の公開先）
 
@@ -63,73 +68,34 @@
 
 ### 触るときの注意
 - **パスは必ず相対で書くこと。** Pagesはサイトを`/dictation/`配下に置くため、`/static/...`と
-  絶対で書くと404になる。相対にしておけばCloud Run版（`/`直下）とも共用できる
+  絶対で書くと404になる
 - `sentences.json`は`app/static/`にある（ブラウザが`fetch`で取りに行くため）
-- 判定ロジックは`app/static/scoring.js`（`app.py`からの移植）。**両者を変更したら
+- 判定ロジックは`app/static/scoring.js`（本番）と`tests/reference_scoring.py`
+  （答え合わせ用のPython版）の2つがある。**どちらかを変更したら
   `python3 tests/compare_scoring.py` で出力が一致することを必ず確認する**
 - **Transformers.jsは`3.8.1`、deviceは`wasm`に固定すること（spec.txt 9-4節）。**
   4系はWASMで量子化モデルを読めず、3.8.1はWebGPUだと出力が壊れる。どちらも
   「WebGPUが使える環境では正常に見える」ため、変更する場合は**WebGPUを無効にした状態で
   文字起こし結果まで**実機確認すること（`tests/browser_check.html`が両方を検査する）
 
-## Deployment（Google Cloud Run・**2026-08-18に停止済み**）
+## Deployment（Google Cloud Run・**停止済み。コードも削除済み**）
 
-> **現在このサービスは止まっている（公開URLは403）。** 静的版がSafari実機で動作したため、
-> 課金リスクをゼロにする目的でIAMから`allUsers`を外した（spec.txt 9-5節）。削除ではないので、
-> 再開したいときは次のコマンドで戻せる：
-> ```
-> gcloud run services add-iam-policy-binding dictation --region us-central1 \
->   --member="allUsers" --role="roles/run.invoker"
-> ```
-> `app.py`・`Dockerfile`・`deploy.sh`は当面残す（様子を見て問題なければ削除する方針）。
-> 以下は稼働していた当時の手順で、再開する場合の参考。
+> **サービスは2026-08-18に非公開化し（spec.txt 9-5節）、コードは2026-11-02に削除した
+> （spec.txt 11節）。** 現在この経路は存在しない。
+>
+> - 削除したもの：`app/app.py`・`Dockerfile`・`deploy.sh`・`run.sh`・`requirements.txt`
+> - 戻したい場合：`git checkout b48d514 -- app/app.py Dockerfile deploy.sh run.sh requirements.txt`
+>   でコードを復元し、下のコマンドでIAMを戻す
+>   ```
+>   gcloud run services add-iam-policy-binding dictation --region us-central1 \
+>     --member="allUsers" --role="roles/run.invoker"
+>   ```
+> - GCP側の記録：プロジェクト`dictation-503003` / サービス名`dictation` /
+>   リージョン`us-central1`（**無料枠の対象は`us-central1`・`us-east1`・`us-west1`のみ**）。
+>   詳しい構成とデプロイ手順はspec.txt 5-7〜5-10節に残してある
 
-
-一般公開はGoogle Cloud Runで行っている（決定の経緯はspec.txt 5-7節、実施記録は5-8節）。
-
-### 構成
-- Googleプロジェクト：`dictation-503003`（プロジェクト名 `dictation`）
-- Cloud Runサービス名：`dictation`
-- リージョン：**`us-central1`**
-- 公開URL：https://dictation-1054688819377.us-central1.run.app
-- 事前に有効化が必要なAPI（3つ）：`run.googleapis.com` / `cloudbuild.googleapis.com` / `artifactregistry.googleapis.com`
-- **公開URLは2形式ある**（どちらも同じサービス）。`gcloud run services describe`が返すのは
-  `https://dictation-mum4tce77a-uc.a.run.app` の形式で、上の記録と違っていても異常ではない（spec.txt 5-10節）
-
-### デプロイ手順
-`./deploy.sh` を実行する。中身は「設定確認 → デプロイ → 公開URLへのcurl確認」の3段。
-最後のcurl確認は、**デプロイ自体は成功したのにアプリが500を返す**状態を検出するために必ず行う
-（トップページのHTTP 200だけでは静的HTMLしか確かめられないため、出題APIも叩いている）。
-
-`deploy.sh` が実行している`gcloud`コマンド（README.mdの「デプロイ（Google Cloud Run）」節と同一。
-引数を変える場合は両方＋spec.txt 5-8節を揃えること）：
-
-```bash
-gcloud run deploy dictation \
-  --source . \
-  --region us-central1 \
-  --memory 2Gi \
-  --cpu 2 \
-  --timeout 300 \
-  --allow-unauthenticated
-```
-
-- `--source .`：ローカルにDockerが無くてもGoogle側（Cloud Build）でイメージをビルドできる。
-  開発環境にDocker Desktopは導入しない方針のため、この方式が前提
-- `--allow-unauthenticated`：一般公開のため必須（外すとブラウザから開けなくなる）
-- `--memory 2Gi`：Whisper（faster-whisper `base`）が512MB枠に収まらないため
-
-### 料金プランの前提（2026-07-20時点）
-- **Cloud Runの無料枠（月200万リクエスト・36万GiB秒）の範囲内で運用し、請求0円**という前提で
-  この構成を選んでいる。アクセスが無い間はインスタンスが停止し課金対象外になる
-- 無料枠の対象リージョンは **`us-central1` / `us-east1` / `us-west1` のみ**。
-  リージョンを変えると無料枠から外れるため、勝手に変更しないこと
-- 課金アカウント（クレジットカード）の登録は済んでいる（無料枠内なら請求は0円）
-- コールドスタート（久しぶりの初回アクセスで十数秒）は**許容する**方針。
-  最小インスタンス数1にすれば解消するが、常時起動となり無料枠を超えるため採用しない
-
-### 前提が変わっていた場合のルール（重要）
-料金・無料枠・提供状況が上記の前提と違っていた場合、**黙って別のリージョン・別のサービス・
+### 課金の前提が変わっていた場合のルール（重要・ホスティング先を問わず適用）
+料金・無料枠・提供状況が記録と違っていた場合、**黙って別のリージョン・別のサービス・
 別のプランに切り替えないこと。** 作業をそこで止め、2〜3案をトレードオフ（費用・手間・
 性能・移行コスト）付きで提示し、ユーザーの判断を待つこと。
 - 「無料だと思って進めたら課金されていた」「気づかないうちにホスティング先が変わっていた」

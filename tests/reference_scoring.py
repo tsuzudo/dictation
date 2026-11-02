@@ -1,37 +1,20 @@
+# -*- coding: utf-8 -*-
+"""判定ロジックのPython版（参照実装）。
+
+本番で動くのは `app/static/scoring.js` のJavaScript版だけで、このファイルは
+**移植元を答え合わせの相手として残したもの**。`tests/compare_scoring.py` が
+同じ入力を両者に与えて出力の一致を確認するために読み込む。
+
+2026-11-02：Cloud Run時代の `app/app.py` を削除する際、その判定ロジック部分
+（37〜329行）を一字も変えずにここへ移した。Flask・Whisper関連は捨ててある
+（spec.txt 11節）。
+
+**`app/static/scoring.js` を直したら、必ずこちらも同じように直し、
+`python3 tests/compare_scoring.py` で一致を確認すること。**
+"""
+
 import difflib
-import json
-import os
-import random
 import re
-import tempfile
-import threading
-from pathlib import Path
-
-from faster_whisper import WhisperModel
-from flask import Flask, jsonify, request, render_template
-
-APP_DIR = Path(__file__).resolve().parent
-# ブラウザからも同じ相対パス（static/sentences.json）で取りに行けるようstatic配下に置く（spec.txt 9-2節）
-SENTENCES_PATH = APP_DIR / "static" / "sentences.json"
-
-app = Flask(__name__)
-
-# 文字起こしエンジン（2026-07-20：openai-whisperからfaster-whisperへ移行。spec.txt 5-5節）
-# int8量子化でCPU推論。メモリ・速度ともに有利で、精度は同等
-WHISPER_MODEL_SIZE = os.environ.get("DICTATION_WHISPER_MODEL", "base")
-print(f"Whisperモデル（{WHISPER_MODEL_SIZE}）を読み込み中...")
-whisper_model = WhisperModel(WHISPER_MODEL_SIZE, device="cpu", compute_type="int8")
-print("読み込み完了。")
-
-# WhisperModelは複数スレッドから同時に呼ぶことを想定していないため、
-# 文字起こしは1件ずつ直列に処理する（Flaskはthreaded=Trueで動作）
-transcribe_lock = threading.Lock()
-
-with open(SENTENCES_PATH, encoding="utf-8") as f:
-    SENTENCES = json.load(f)
-
-# （2026-07-20）複数ユーザー対応のため、サーバーは利用者ごとの状態を持たない。
-# 出題文と直近の出題履歴はブラウザ側が保持する（spec.txt 5-6節）
 
 
 NUMBER_WORDS = {
@@ -327,74 +310,3 @@ def build_diff(target_text, said_text):
     return diff
 
 
-@app.route("/")
-def index():
-    return render_template("index.html")
-
-
-@app.route("/api/sentence/random", methods=["POST"])
-def api_sentence_random():
-    # 直近の出題履歴はブラウザ（sessionStorage）が持ち、リクエストごとに送ってくる。
-    # サーバーは利用者ごとの状態を持たない（spec.txt 5-6節）
-    data = request.get_json(silent=True) or {}
-    difficulty = data.get("difficulty", "beginner")
-    pool = SENTENCES.get(difficulty)
-    if not pool:
-        return jsonify({"error": "invalid difficulty"}), 400
-
-    recent = data.get("recent")
-    recent = set(recent) if isinstance(recent, list) else set()
-
-    candidates = [s for s in pool if s not in recent]
-    # プールが RECENT_LIMIT 以下だと候補が尽きうるので、その場合は履歴を無視する
-    if not candidates:
-        candidates = pool
-    return jsonify({"sentence": random.choice(candidates)})
-
-
-@app.route("/api/transcribe", methods=["POST"])
-def api_transcribe():
-    # ブラウザ（MediaRecorder）で録音した音声と、そのとき表示していた出題文を受け取り、
-    # 文字起こし→判定して返す。出題文をブラウザから受け取ることで、サーバーは
-    # 利用者ごとの状態を持たずに済む（spec.txt 5-6節）。
-    # 音声形式（webm/opus/mp4等）はブラウザ依存だが、WhisperがffmpegでそのままデコードするためWAV変換は不要（spec.txt 5-4節）
-    audio_file = request.files.get("audio")
-    if audio_file is None:
-        return jsonify({"error": "no audio uploaded"}), 400
-
-    target_sentence = (request.form.get("target") or "").strip()
-    if not target_sentence:
-        return jsonify({"error": "no target sentence"}), 400
-
-    # 一時ファイルはリクエストごとに作る（固定名だと同時利用時に
-    # 他人の音声で判定してしまうため）。拡張子に依存せずffmpegが形式を判別する
-    # 保存先はOSの一時ディレクトリ（コンテナでもアプリ配置先が書き込み可能とは限らないため）
-    fd, temp_path = tempfile.mkstemp(prefix="dictation_")
-    os.close(fd)
-    try:
-        audio_file.save(temp_path)
-
-        # faster-whisperのtranscribe()はセグメントのジェネレータを返すため、
-        # ここで消費して1つの文字列に連結する（ロック内で消費しきること）
-        with transcribe_lock:
-            segments, _info = whisper_model.transcribe(temp_path, language="en")
-            transcript = "".join(segment.text for segment in segments).strip()
-    finally:
-        try:
-            os.remove(temp_path)
-        except OSError:
-            pass
-
-    diff = build_diff(target_sentence, transcript)
-    return jsonify({"transcript": transcript, "diff": diff})
-
-
-if __name__ == "__main__":
-    # ローカル開発用の起動。Hugging Face Spacesではgunicornが app:app を直接読み込むため
-    # ここは実行されない（spec.txt 5-7節）
-    # デバッグモードは既定で無効。公開環境で有効だとWerkzeugデバッガから
-    # 任意のコードを実行される危険があるため、明示的に指定した時だけ有効にする
-    # hostは既定（127.0.0.1）のまま。手元のMac以外からは繋がらないようにしておく
-    debug = os.environ.get("DICTATION_DEBUG") == "1"
-    port = int(os.environ.get("PORT", "5001"))
-    app.run(debug=debug, threaded=True, port=port)
